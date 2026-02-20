@@ -42,6 +42,7 @@
 ### Commits Made
 - ee865f2: Add full data export functionality for facilitator dashboard
 - 77ffc09: Add progress notes for session Feb 20, 2026
+- ecb3624: Add PWA support for mobile installation
 
 ### Next Steps
 - Continue with next pending feature from the queue
@@ -49,5 +50,5 @@
 - 8 features remaining
 
 ### Server Info
-- Dev server running on port 4000
-- Start with: `npm run dev`
+- Dev server running on port 4003 (ports 4000-4002 were in use)
+- Start with: `npm run dev` or `npx vite --port 4003 --host`
