@@ -47,7 +47,7 @@ export function DecisionCard({
         <div className="space-y-3">
           <Slider
             value={[value]}
-            onValueChange={(values) => onChange(values[0])}
+            onValueChange={(values) => onChange(values[0] ?? value)}
             min={min}
             max={max}
             step={step}

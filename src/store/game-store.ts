@@ -1,1097 +1,1069 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { auth, table } from '@devvai/devv-code-backend'
-import type { RoundResult, RiskManagementInput, MultiFactorScore, DecisionQuality, LeaderboardEntry, CategoryAward } from '@/types'
-import { calculateProfitRanks, calculateMultiFactorScore, generateFinalLeaderboard, calculateCategoryAwards } from '@/lib/scoring'
+import { auth, table } from '@/lib/supabase'
+import { LEVEL_SCENARIOS } from '@/data/scenarios'
 
-interface GameDecision {
-  price: number      // Price per cup ($0.25 - $2.00)
-  quality: number    // Quality level (1-5)
-  marketing: number  // Marketing spend ($0 - $30)
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Starting budget for every new player */
+const STARTING_BUDGET = 500
+
+/** Fixed costs deducted from the budget at each level (stand setup, permits, supplies) */
+const FIXED_COSTS_PER_LEVEL = 20
+
+/** Minimum budget required to continue playing. Below this threshold the game ends. */
+const MINIMUM_OPERATING_BUDGET = 20
+
+/** Maximum number of levels in the game */
+const MAX_LEVEL = 50
+
+/** Number of levels unlocked per camp day */
+const LEVELS_PER_DAY = 10
+
+/** Hour of the day (24-hour format) when new levels unlock */
+const UNLOCK_HOUR = 7
+
+/** Maximum cups that can be sold in a single level (capacity cap) */
+const MAX_CAPACITY = 150
+
+/** Base demand used in the demand formula before multipliers */
+const BASE_DEMAND = 50
+
+/** Cost of the cheapest possible cup (quality level 1) */
+const BASE_INGREDIENT_COST = 0.10
+
+/** Quality multipliers: index 0 = quality 1 (Basic), index 4 = quality 5 (Gourmet) */
+const QUALITY_MULTIPLIERS: readonly number[] = [1.0, 1.2, 1.5, 2.0, 2.8] as const
+
+// ============================================================================
+// Interfaces
+// ============================================================================
+
+/** Player decisions for a single level */
+export interface GameDecision {
+  /** Price per cup ($0.25 - $2.00) */
+  price: number
+  /** Quality level (1-5 stars) */
+  quality: number
+  /** Marketing spend ($0 - $30) */
+  marketing: number
 }
 
-interface DailyScenario {
-  id: string
+/**
+ * Scenario data for a single level.
+ * Each of the 50 levels has a unique scenario with market conditions,
+ * optimal decision ranges, and optional loan offers.
+ */
+export interface LevelScenario {
+  /** Level number (1-50) */
+  level: number
+  /** Camp day this level belongs to (1-5) */
+  day: number
+  /** Short title for the scenario */
   title: string
+  /** Narrative context (2-3 sentences describing the market situation) */
   story: string
+  /** Strategic hint displayed to the player (subtle guidance) */
   hint: string
+  /** Description of the target customer segment */
   targetMarket: string
+  /** How deceptive or counter-intuitive the scenario is */
   deceptionLevel: 'low' | 'medium' | 'high'
+  /** Optimal decision ranges the player should aim for */
   optimalDecision: {
     priceRange: [number, number]
     qualityRange: [number, number]
     marketingRange: [number, number]
   }
-  weatherEffect: number  // 0.6 - 1.4 multiplier
+  /** Weather/foot-traffic multiplier applied to demand (0.5 - 1.4) */
+  weatherEffect: number
+  /** Short description of the market condition */
   marketCondition: string
+  /** Loan offer available at this level, or null if none */
+  loanOffer: LoanOffer | null
 }
 
-interface GameResult {
-  /** Number of cups produced before knowing actual demand */
-  cupsMade: number
+/** A loan offer presented to the player at specific levels */
+export interface LoanOffer {
+  /** Amount of money the player receives upon acceptance */
+  amount: number
+  /** Fixed repayment deducted from budget at the end of each subsequent level */
+  repaymentPerLevel: number
+  /** Total amount the player must repay (principal + interest) */
+  totalRepayment: number
+  /** Number of levels over which the loan is repaid */
+  durationLevels: number
+}
+
+/** Tracks an active loan that the player is currently repaying */
+export interface ActiveLoan {
+  /** Original loan amount received */
+  amount: number
+  /** Fixed per-level repayment amount */
+  repaymentPerLevel: number
+  /** Remaining balance still owed */
+  remainingBalance: number
+  /** Number of repayment levels remaining */
+  levelsRemaining: number
+  /** Level at which the loan was accepted */
+  acceptedAtLevel: number
+  /** Total repayment obligation (principal + interest) */
+  totalRepayment: number
+}
+
+/** Historical record of a completed or defaulted loan */
+export interface LoanRecord {
+  /** Original loan amount received */
+  amount: number
+  /** Fixed per-level repayment amount */
+  repaymentPerLevel: number
+  /** Total repayment obligation (principal + interest) */
+  totalRepayment: number
+  /** Number of levels the loan was scheduled over */
+  durationLevels: number
+  /** Level at which the loan was accepted */
+  acceptedAtLevel: number
+  /** Level at which the loan was fully repaid, or the player's game ended */
+  settledAtLevel: number
+  /** Whether the loan was fully repaid or ended due to game over */
+  status: 'repaid' | 'defaulted'
+}
+
+/** Complete result breakdown for a single completed level */
+export interface LevelResult {
+  /** Level number (1-50) */
+  level: number
+  /** Title of the scenario played */
+  scenario: string
+  /** The player's decisions for this level */
+  decisions: GameDecision
+  /** Number of cups sold */
   cupsSold: number
+  /** Gross revenue earned (cups sold * price) */
   revenue: number
+  /** Total costs incurred (fixed + marketing + variable ingredient costs) */
   costs: number
+  /** Net profit before loan repayment (revenue - costs) */
   profit: number
+  /** Player's budget after all calculations for this level */
+  budgetAfter: number
+  /** Loan repayment amount deducted this level (0 if no active loan) */
+  loanRepaymentDeducted: number
+  /** Whether a loan was accepted at the start of this level */
+  loanAcceptedThisLevel: boolean
+  /** Amount of loan received this level (0 if none) */
+  loanAmountReceived: number
+  /** Feedback messages explaining what happened */
   feedback: string[]
-  /** Ratio of unsold cups to cups produced (0.0–1.0) */
-  spoilageRate: number
-  /** How well the player's decisions matched the scenario's optimal strategy */
-  decisionQuality: DecisionQuality
+  /** ISO timestamp of when this level was completed */
+  timestamp: string
 }
 
-interface Team {
+/**
+ * Represents a single player in the game.
+ * Each player has their own budget, level progression, loan state, and statistics.
+ */
+export interface Player {
+  /** Unique player identifier */
   id: string
+  /** Display name chosen by the player */
   name: string
-  color: string
-  profit: number
-  revenue: number
-  cupsSold: number
-  gamesPlayed: number
-  lastResult: GameResult | null
-  timestamp: number
-  currentBudget: number
-  day: number
-  /** History of all rounds played by this team */
-  roundHistory: RoundResult[]
-  /** Total cups produced across all rounds, used for efficiency/spoilage calculation */
-  totalCupsMade: number
-  /** Number of rounds where the team achieved positive profit, used for consistency scoring */
-  profitableRounds: number
-  /** Facilitator-assigned risk management score (0–15) */
-  riskManagementScore: number
-  /** Calculated multi-factor score, null until end-of-game calculation */
-  multiFactorScore: MultiFactorScore | null
+  /** ID of the game room this player belongs to */
+  roomId: string
+
+  // -- Progression --
+  /** The next level the player should play (1-50) */
+  currentLevel: number
+  /** Array of level numbers the player has completed */
+  completedLevels: number[]
+  /** Current available budget (starts at $500) */
+  budget: number
+
+  // -- Cumulative Statistics --
+  /** Sum of net profit across all completed levels */
+  totalProfit: number
+  /** Sum of gross revenue across all completed levels */
+  totalRevenue: number
+  /** Sum of cups sold across all completed levels */
+  totalCupsSold: number
+  /** Highest budget the player has ever reached */
+  peakBudget: number
+  /** Lowest budget the player has ever reached */
+  lowestBudget: number
+
+  // -- Loan State --
+  /** Currently active loan being repaid, or null if no active loan */
+  activeLoan: ActiveLoan | null
+  /** Historical record of all loans accepted */
+  loanHistory: LoanRecord[]
+
+  // -- Level History --
+  /** Detailed results for every completed level */
+  levelResults: LevelResult[]
+
+  // -- Status --
+  /** Whether the player's business has closed (budget fell below minimum) */
+  isGameOver: boolean
+  /** The level at which the game ended, or null if still playing */
+  gameOverAtLevel: number | null
 }
 
+/** Simulation result returned by the business simulation engine */
+export interface SimulationResult {
+  /** Number of cups sold this level */
+  cupsSold: number
+  /** Gross revenue (cups sold * price) */
+  revenue: number
+  /** Total costs (fixed + marketing + variable) */
+  costs: number
+  /** Net profit (revenue - costs), before loan repayment */
+  profit: number
+  /** Feedback messages for the player */
+  feedback: string[]
+}
+
+/** A game room that contains players and configuration */
+export interface GameRoom {
+  /** Unique room identifier / join code */
+  id: string
+  /** Display name for the room */
+  name: string
+  /** All players in this room */
+  players: Player[]
+  /** When the room was created (Unix timestamp) */
+  createdAt: number
+  /** Whether the room is currently accepting play */
+  isActive: boolean
+  /** The date the camp starts, used for level unlock calculations (ISO date string, e.g. "2026-07-13") */
+  campStartDate: string
+}
+
+/** Facilitator / room creator credentials */
 interface User {
   uid: string
   email: string
   name: string
 }
 
-interface GameRoom {
-  id: string
-  name: string
-  teams: Team[]
-  createdAt: number
-  isActive: boolean
+/**
+ * Leaderboard entry returned by getLeaderboard().
+ * Contains the player and their rank.
+ */
+export interface LeaderboardEntry {
+  /** Position on the leaderboard (1-based) */
+  rank: number
+  /** The player this entry represents */
+  player: Player
 }
 
-interface GameState {
-  budget: number
+// ============================================================================
+// Game State Interface
+// ============================================================================
+
+export interface GameState {
+  // -- Current player session state --
+  /** The decision the current player is configuring for the active level */
   currentDecision: GameDecision
-  result: GameResult | null
+  /** Result of the most recent simulation, or null if none yet */
+  lastSimulationResult: SimulationResult | null
+  /** Whether a simulation is currently running */
   isSimulating: boolean
-  day: number
-  currentScenario: DailyScenario | null
-  
-  // Authentication state
+  /** The scenario for the level the player is currently viewing */
+  currentScenario: LevelScenario | null
+
+  // -- Authentication state --
+  /** Logged-in facilitator / room creator */
   user: User | null
+  /** Whether a facilitator is authenticated */
   isAuthenticated: boolean
+  /** Whether authentication is in progress */
   isAuthenticating: boolean
-  
-  // Game room state
+
+  // -- Game room state --
+  /** The room the current user has joined or created */
   currentGameRoom: GameRoom | null
+  /** All rooms visible to the current user */
   availableGameRooms: GameRoom[]
+  /** Whether rooms are being loaded from the backend */
   isLoadingRooms: boolean
-  
-  // Multi-team state (within current room)
-  teams: Team[]
-  currentTeam: Team | null
-  gameMode: 'single' | 'multi'
 
-  // Multi-factor scoring state
-  /** Facilitator-assigned risk management scores keyed by team ID */
-  riskManagementScores: Map<string, RiskManagementInput>
-  /** Final multi-factor scores keyed by team ID, populated at end of game */
-  finalScores: Map<string, MultiFactorScore>
+  // -- Player state (within current room) --
+  /** All players in the current game room */
+  players: Player[]
+  /** The currently selected / active player */
+  currentPlayer: Player | null
 
+  // -- Real-time subscription state --
+  /** Unsubscribe function for the active room subscription, or null if not subscribed */
+  _roomUnsubscribe: (() => void) | null
+
+  // -- Room join error state --
+  /** Error message displayed when joining a room fails */
+  roomJoinError: string | null
+
+  // ========================================================================
   // Actions
+  // ========================================================================
+
+  // -- Decision actions --
+  /** Update one or more fields of the current decision */
   updateDecision: (decision: Partial<GameDecision>) => void
+
+  // -- Level / scenario actions --
+  /** Get the scenario for a specific level (1-50) */
+  getLevelScenario: (level: number) => LevelScenario
+  /**
+   * Determine whether a given level is currently unlocked.
+   * Levels 1-10 unlock on camp day 1 at 7AM, 11-20 on day 2, etc.
+   * Previous days' levels remain accessible.
+   */
+  isLevelUnlocked: (level: number, campStartDate?: string) => boolean
+
+  // -- Simulation actions --
+  /** Run the business simulation for the current player's active level */
   runSimulation: () => void
+
+  // -- Loan actions --
+  /** Accept the loan offer for the current level (adds funds to budget) */
+  acceptLoan: () => void
+  /** Decline the loan offer for the current level (no-op on budget) */
+  declineLoan: () => void
+
+  // -- Game lifecycle --
+  /** Reset the current player's game to initial state */
   resetGame: () => void
-  startNewDay: () => void
-  getDailyScenario: (day: number) => DailyScenario
-  
-  // Authentication actions
+  /** Advance the current player to the next level */
+  advanceToNextLevel: () => void
+
+  // -- Authentication actions --
+  /** Send a one-time password to the given email */
   sendOTP: (email: string) => Promise<void>
+  /** Verify the OTP and sign in */
   verifyOTP: (email: string, code: string) => Promise<void>
+  /** Sign out the current facilitator */
   logout: () => Promise<void>
-  
-  // Game room management (backend-persistent)
-  createGameRoom: (name: string) => Promise<string>
+
+  // -- Game room management --
+  /** Create a new game room with the given name and camp start date */
+  createGameRoom: (name: string, campStartDate: string) => Promise<string>
+  /** Join an existing room by its ID / join code */
   joinGameRoom: (roomId: string) => Promise<boolean>
+  /** Leave the current game room */
   leaveGameRoom: () => void
+  /** Load all available game rooms from the backend */
   loadGameRooms: () => Promise<void>
+  /** Refresh the current room's data from the backend */
   refreshCurrentRoom: () => Promise<void>
+  /** Find a room in the local cache by its ID */
   getGameRoomById: (roomId: string) => GameRoom | null
-  
-  // Team management (within current room)
-  addTeam: (name: string) => Promise<void>
-  selectTeam: (teamId: string) => void
-  setGameMode: (mode: 'single' | 'multi') => void
+
+  // -- Player management --
+  /** Register a new player in the current room with the given display name */
+  addPlayer: (name: string) => Promise<void>
+  /** Select an existing player as the active player */
+  selectPlayer: (playerId: string) => void
+
+  // -- Leaderboard --
+  /**
+   * Get the leaderboard for the current room.
+   * Players are sorted by: totalProfit (desc), totalRevenue (desc),
+   * totalCupsSold (desc), then levels completed (desc).
+   */
+  getLeaderboard: () => LeaderboardEntry[]
+  /** Clear all players from the current room (facilitator action) */
   clearLeaderboard: () => void
-  getLeaderboard: () => Team[]
-  
-  // Scoring actions
-  /** Store a facilitator-assigned risk management score for a team */
-  setRiskManagementScore: (teamId: string, score: RiskManagementInput) => void
-  /**
-   * Calculate final multi-factor scores for all teams.
-   * Uses profit ranking, consistency, efficiency, and risk management
-   * scoring from the scoring library. Updates the finalScores map with
-   * a MultiFactorScore for each team.
-   */
-  calculateMultiFactorScores: () => void
-  /**
-   * Generate the final leaderboard sorted by multi-factor score (descending).
-   * Calculates profit ranks, applies multi-factor scoring, determines category
-   * awards, and returns a ranked array of LeaderboardEntry objects.
-   *
-   * Must be called after `calculateMultiFactorScores()` has populated finalScores,
-   * or it will compute scores on the fly using current risk management inputs.
-   *
-   * @returns Sorted LeaderboardEntry[] with ranks, scores, and category awards
-   */
-  getFinalLeaderboard: () => LeaderboardEntry[]
 
-  // Helper functions
-  updateRoomInBackend: (updatedTeams: Team[]) => Promise<void>
+  // -- Real-time subscription --
+  /** Subscribe to real-time updates for the current game room */
+  subscribeToRoom: () => void
+  /** Unsubscribe from real-time room updates */
+  unsubscribeFromRoom: () => void
+
+  // -- Backend sync --
+  /** Persist the current player list to the backend */
+  updateRoomInBackend: (updatedPlayers: Player[]) => Promise<void>
+  /** Debounced version of updateRoomInBackend with retry on failure */
+  debouncedSync: (updatedPlayers: Player[]) => void
 }
 
-// Business simulation algorithm with scenario-based logic
-const simulateBusiness = (decision: GameDecision, budget: number, scenario: DailyScenario): GameResult => {
-  const { price, quality, marketing } = decision
-  
-  // Calculate costs with quality directly tied to production cost
-  const baseIngredientCost = 0.10
-  const qualityMultiplier = [1.0, 1.2, 1.5, 2.0, 2.8] // Cost increases exponentially with quality
-  const ingredientCost = baseIngredientCost * qualityMultiplier[quality - 1] // Quality 1-5 maps to index 0-4
-  
-  const marketingCost = marketing
-  const totalFixedCosts = 20 // Stand setup, permits, etc.
-  
-  // Check if we can afford the marketing
-  const actualMarketing = Math.min(marketing, budget - totalFixedCosts)
-  const totalCosts = totalFixedCosts + actualMarketing
-  
-  // Check if decision aligns with optimal ranges (decision quality scoring)
-  const priceScore = isInRange(price, scenario.optimalDecision.priceRange) ? 1.2 : 0.8
-  const qualityScore = isInRange(quality, scenario.optimalDecision.qualityRange) ? 1.2 : 0.8
-  const marketingScore = isInRange(marketing, scenario.optimalDecision.marketingRange) ? 1.2 : 0.8
-  
-  // Calculate scenario-based demand factors
-  const priceAttractiveness = Math.max(0, (2.0 - price) / 1.75) * priceScore
-  const qualityFactor = (quality / 5) * qualityScore
-  const marketingFactor = (1 + (actualMarketing / 50)) * marketingScore
-  
-  // Apply scenario-specific weather effect instead of random
-  const weatherFactor = scenario.weatherEffect
-  
-  // Base demand adjusted by scenario complexity
-  const baseDemand = 50
-  const scenarioMultiplier = scenario.deceptionLevel === 'high' ? 1.3 : 
-                           scenario.deceptionLevel === 'medium' ? 1.1 : 1.0
-  
-  const demand = baseDemand * priceAttractiveness * qualityFactor * marketingFactor * weatherFactor * scenarioMultiplier
-  
-  // Calculate production capacity (cups made before knowing demand)
-  const maxCapacity = 150
-  const productionBudget = Math.max(0, budget - totalFixedCosts - actualMarketing)
-  const cupsMade = Math.min(Math.floor(productionBudget / ingredientCost), maxCapacity)
+// ============================================================================
+// Helper Functions
+// ============================================================================
 
-  // Cups sold is capped by both demand and production
-  const cupsSold = Math.min(Math.floor(demand), cupsMade)
-
-  // Calculate financial results
-  const revenue = cupsSold * price
-  const variableCosts = cupsMade * ingredientCost // Cost is based on cups made, not sold
-  const totalBusinessCosts = totalCosts + variableCosts
-  const profit = revenue - totalBusinessCosts
-
-  // Generate scenario-aware feedback
-  const feedback = generateScenarioFeedback(decision, scenario, profit, cupsSold)
-
-  const spoilageRate = cupsMade > 0 ? (cupsMade - cupsSold) / cupsMade : 0
-
-  // Determine how well each decision matched the scenario's optimal ranges
-  const priceOptimal = isInRange(price, scenario.optimalDecision.priceRange)
-  const qualityOptimal = isInRange(quality, scenario.optimalDecision.qualityRange)
-  const marketingOptimal = isInRange(marketing, scenario.optimalDecision.marketingRange)
-
-  const decisionQuality: DecisionQuality = {
-    priceOptimal,
-    qualityOptimal,
-    marketingOptimal,
-    overallScore:
-      (priceOptimal ? 1 : 0) +
-      (qualityOptimal ? 1 : 0) +
-      (marketingOptimal ? 1 : 0),
-  }
-
-  return {
-    cupsMade,
-    cupsSold,
-    revenue: Math.round(revenue * 100) / 100,
-    costs: Math.round(totalBusinessCosts * 100) / 100,
-    profit: Math.round(profit * 100) / 100,
-    feedback,
-    spoilageRate,
-    decisionQuality
-  }
-}
-
-// Helper function to check if value is in optimal range
+/**
+ * Check if a numeric value falls within an inclusive range.
+ * Used to determine whether a player's decision matches the scenario's optimal range.
+ */
 const isInRange = (value: number, range: [number, number]): boolean => {
   return value >= range[0] && value <= range[1]
 }
 
-// Generate scenario-specific feedback
-const generateScenarioFeedback = (decision: GameDecision, scenario: DailyScenario, profit: number, cupsSold: number): string[] => {
+/**
+ * Round a number to two decimal places to avoid floating-point drift.
+ * Uses the "multiply, round, divide" pattern for reliable cent-precision.
+ */
+const roundCurrency = (value: number): number => {
+  return Math.round(value * 100) / 100
+}
+
+/**
+ * Generate a human-readable room ID that is easy to share verbally.
+ * Format: AdjectiveNoun + 4 random digits (e.g. "CoolLemons4821").
+ */
+const generateGameRoomId = (): string => {
+  const adjectives = ['Cool', 'Fast', 'Smart', 'Bright', 'Sweet', 'Fresh', 'Happy', 'Lucky', 'Super', 'Epic']
+  const nouns = ['Lemons', 'Stand', 'Market', 'Juice', 'Booth', 'Corner', 'Shop', 'Spot', 'Zone', 'Hub']
+  const numbers = Math.floor(Math.random() * 9000) + 1000
+
+  const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)]
+  const randomNoun = nouns[Math.floor(Math.random() * nouns.length)]
+
+  return `${randomAdjective}${randomNoun}${numbers}`
+}
+
+/**
+ * Create a new Player object with default starting values.
+ * Every player begins with the same budget and at level 1.
+ */
+const createNewPlayer = (id: string, name: string, roomId: string): Player => ({
+  id,
+  name: name.trim(),
+  roomId,
+  currentLevel: 1,
+  completedLevels: [],
+  budget: STARTING_BUDGET,
+  totalProfit: 0,
+  totalRevenue: 0,
+  totalCupsSold: 0,
+  peakBudget: STARTING_BUDGET,
+  lowestBudget: STARTING_BUDGET,
+  activeLoan: null,
+  loanHistory: [],
+  levelResults: [],
+  isGameOver: false,
+  gameOverAtLevel: null,
+})
+
+/**
+ * Calculate the camp day number (1-5) from the current date and camp start date.
+ * Returns the number of calendar days elapsed since the start date, plus 1.
+ * Minimum return value is 1. If the current date is before the start, returns 0.
+ */
+const getCampDay = (campStartDate: string): number => {
+  const now = new Date()
+  const start = new Date(campStartDate)
+
+  // Normalize both to UTC midnight to avoid timezone inconsistencies
+  // (new Date(string) parses as UTC, new Date(y,m,d) parses as local)
+  const nowMidnight = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  const startMidnight = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+
+  const diffMs = nowMidnight - startMidnight
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+  // Camp hasn't started yet
+  if (diffDays < 0) return 0
+
+  // Day 1 = first day, Day 5 = last day
+  return diffDays + 1
+}
+
+/**
+ * Determine whether a given level is unlocked based on the camp schedule.
+ *
+ * Levels 1-10 unlock on camp day 1 at 7:00 AM.
+ * Levels 11-20 unlock on camp day 2 at 7:00 AM.
+ * ...and so on up to levels 41-50 on day 5.
+ *
+ * Previous days' levels remain accessible (catch-up is allowed).
+ *
+ * @param level - The level to check (1-50)
+ * @param campStartDate - ISO date string for the camp start (e.g. "2026-07-13")
+ * @returns True if the level is currently playable
+ */
+const checkLevelUnlocked = (level: number, campStartDate: string): boolean => {
+  if (level < 1 || level > MAX_LEVEL) return false
+
+  const now = new Date()
+  const campDay = getCampDay(campStartDate)
+  const levelDay = Math.ceil(level / LEVELS_PER_DAY) // Level 1-10 = Day 1, 11-20 = Day 2, etc.
+
+  // The camp day for this level hasn't arrived yet
+  if (levelDay > campDay) return false
+
+  // If this is today's batch, check the 7AM gate
+  if (levelDay === campDay && now.getHours() < UNLOCK_HOUR) return false
+
+  // Level's day has passed, or it's today and past 7AM
+  return true
+}
+
+// ============================================================================
+// Business Simulation Engine
+// ============================================================================
+
+/**
+ * Run the business simulation for a single level.
+ *
+ * The demand calculation formula is preserved exactly from v1:
+ *   baseDemand = 50
+ *   priceScore = price in optimal range ? 1.2 : 0.8
+ *   qualityScore = quality in optimal range ? 1.2 : 0.8
+ *   marketingScore = marketing in optimal range ? 1.2 : 0.8
+ *   priceAttractiveness = ((2.0 - price) / 1.75) * priceScore
+ *   qualityFactor = (quality / 5) * qualityScore
+ *   marketingFactor = (1 + (marketing / 50)) * marketingScore
+ *   weatherEffect = scenario.weatherEffect
+ *   scenarioMultiplier = 1.0 | 1.1 | 1.3 based on deceptionLevel
+ *   finalDemand = baseDemand * priceAttractiveness * qualityFactor * marketingFactor * weatherEffect * scenarioMultiplier
+ *   cupsSold = min(floor(finalDemand), 150)
+ *
+ * Financial calculation:
+ *   revenue = cupsSold * price
+ *   ingredientCost = cupsSold * (baseIngredientCost * qualityMultiplier)
+ *   totalCosts = fixedCosts + marketing + ingredientCost
+ *   profit = revenue - totalCosts
+ *
+ * @param decision - The player's price, quality, and marketing choices
+ * @param budget - The player's current budget before this level
+ * @param scenario - The scenario for the current level
+ * @returns The simulation result with cups sold, revenue, costs, profit, and feedback
+ */
+const simulateBusiness = (
+  decision: GameDecision,
+  budget: number,
+  scenario: LevelScenario
+): SimulationResult => {
+  const { price, quality, marketing } = decision
+
+  // Variable cost per cup based on quality selection
+  const ingredientCost = BASE_INGREDIENT_COST * (QUALITY_MULTIPLIERS[quality - 1] ?? 1)
+
+  // Cap marketing spend to what the player can actually afford after fixed costs
+  const actualMarketing = Math.min(marketing, Math.max(0, budget - FIXED_COSTS_PER_LEVEL))
+
+  // Check how well each decision matches the scenario's optimal ranges
+  const priceScore = isInRange(price, scenario.optimalDecision.priceRange) ? 1.2 : 0.8
+  const qualityScore = isInRange(quality, scenario.optimalDecision.qualityRange) ? 1.2 : 0.8
+  const marketingScore = isInRange(marketing, scenario.optimalDecision.marketingRange) ? 1.2 : 0.8
+
+  // Calculate demand factors (formula preserved exactly from v1)
+  const priceAttractiveness = Math.max(0, (2.0 - price) / 1.75) * priceScore
+  const qualityFactor = (quality / 5) * qualityScore
+  const marketingFactor = (1 + (actualMarketing / 50)) * marketingScore
+
+  // Scenario-specific modifiers
+  const weatherFactor = scenario.weatherEffect
+  const scenarioMultiplier =
+    scenario.deceptionLevel === 'high' ? 1.3 :
+    scenario.deceptionLevel === 'medium' ? 1.1 : 1.0
+
+  // Calculate final demand
+  const demand = BASE_DEMAND * priceAttractiveness * qualityFactor * marketingFactor * weatherFactor * scenarioMultiplier
+
+  // Cups sold capped by demand and max capacity
+  const cupsSold = Math.min(Math.floor(demand), MAX_CAPACITY)
+
+  // Financial calculations
+  const revenue = cupsSold * price
+  const variableCosts = cupsSold * ingredientCost
+  const totalCosts = FIXED_COSTS_PER_LEVEL + actualMarketing + variableCosts
+  const profit = revenue - totalCosts
+
+  // Generate contextual feedback
+  const feedback = generateScenarioFeedback(decision, scenario, profit, cupsSold)
+
+  return {
+    cupsSold,
+    revenue: roundCurrency(revenue),
+    costs: roundCurrency(totalCosts),
+    profit: roundCurrency(profit),
+    feedback,
+  }
+}
+
+/**
+ * Process loan repayment for a player at the end of a level.
+ * Deducts the per-level repayment from the player's budget and updates
+ * the loan's remaining balance and levels remaining.
+ *
+ * If the loan is fully repaid, it is moved to loanHistory and activeLoan is cleared.
+ *
+ * @param player - The player whose loan to process (mutated in place by the caller via spread)
+ * @param currentLevel - The level number where this repayment occurs
+ * @returns The amount deducted as repayment (0 if no active loan)
+ */
+const processLoanRepayment = (
+  player: Player,
+  currentLevel: number
+): { repaymentAmount: number; updatedLoan: ActiveLoan | null; newLoanRecord: LoanRecord | null } => {
+  if (!player.activeLoan) {
+    return { repaymentAmount: 0, updatedLoan: null, newLoanRecord: null }
+  }
+
+  const repaymentAmount = player.activeLoan.repaymentPerLevel
+
+  const updatedLoan: ActiveLoan = {
+    ...player.activeLoan,
+    remainingBalance: roundCurrency(player.activeLoan.remainingBalance - repaymentAmount),
+    levelsRemaining: player.activeLoan.levelsRemaining - 1,
+  }
+
+  // Check if the loan is fully repaid
+  if (updatedLoan.remainingBalance <= 0 || updatedLoan.levelsRemaining <= 0) {
+    const loanRecord: LoanRecord = {
+      amount: player.activeLoan.amount,
+      repaymentPerLevel: player.activeLoan.repaymentPerLevel,
+      totalRepayment: player.activeLoan.totalRepayment,
+      durationLevels: Math.round(player.activeLoan.totalRepayment / player.activeLoan.repaymentPerLevel),
+      acceptedAtLevel: player.activeLoan.acceptedAtLevel,
+      settledAtLevel: currentLevel,
+      status: 'repaid',
+    }
+    return { repaymentAmount, updatedLoan: null, newLoanRecord: loanRecord }
+  }
+
+  return { repaymentAmount, updatedLoan, newLoanRecord: null }
+}
+
+// ============================================================================
+// Feedback Generation
+// ============================================================================
+
+/**
+ * Generate scenario-specific feedback messages that explain what happened
+ * and teach the player about their decision quality.
+ */
+const generateScenarioFeedback = (
+  decision: GameDecision,
+  scenario: LevelScenario,
+  profit: number,
+  cupsSold: number
+): string[] => {
   const { price, quality, marketing } = decision
   const feedback: string[] = []
-  
-  // Scenario context feedback
-  feedback.push(`📍 **${scenario.title}**: ${scenario.marketCondition}`)
-  
-  // Cost analysis feedback
-  const baseIngredientCost = 0.10
-  const qualityMultiplier = [1.0, 1.2, 1.5, 2.0, 2.8]
-  const ingredientCost = baseIngredientCost * qualityMultiplier[quality - 1]
+
+  // Scenario context
+  feedback.push(`**${scenario.title}**: ${scenario.marketCondition}`)
+
+  // Cost analysis
   const qualityCosts = ['$0.10', '$0.12', '$0.15', '$0.20', '$0.28']
-  feedback.push(`💡 **Cost Analysis**: Quality ${quality}/5 costs ${qualityCosts[quality - 1]} per cup to make`)
-  
+  feedback.push(`**Cost Analysis**: Quality ${quality}/5 costs ${qualityCosts[quality - 1]} per cup to make`)
+
   // Decision analysis based on optimal ranges
   const priceOptimal = isInRange(price, scenario.optimalDecision.priceRange)
   const qualityOptimal = isInRange(quality, scenario.optimalDecision.qualityRange)
   const marketingOptimal = isInRange(marketing, scenario.optimalDecision.marketingRange)
-  
+
   if (priceOptimal && qualityOptimal && marketingOptimal) {
-    feedback.push("🎯 **Perfect Strategy!** You read the market exactly right!")
+    feedback.push('**Perfect Strategy!** You read the market exactly right!')
   } else if (priceOptimal || qualityOptimal || marketingOptimal) {
-    feedback.push("📈 **Good Instincts!** Some of your decisions hit the target.")
+    feedback.push('**Good Instincts!** Some of your decisions hit the target.')
   } else {
-    feedback.push("🤔 **Learning Opportunity!** The market wanted something different.")
+    feedback.push('**Learning Opportunity!** The market wanted something different.')
   }
-  
+
   // Specific decision feedback
   if (!priceOptimal) {
     if (price < scenario.optimalDecision.priceRange[0]) {
-      feedback.push(`💸 Your price ($${price.toFixed(2)}) was too low for this market.`)
+      feedback.push(`Your price ($${price.toFixed(2)}) was too low for this market.`)
     } else {
-      feedback.push(`💰 Your price ($${price.toFixed(2)}) was too high for this market.`)
+      feedback.push(`Your price ($${price.toFixed(2)}) was too high for this market.`)
     }
   }
-  
+
   if (!qualityOptimal) {
     if (quality < scenario.optimalDecision.qualityRange[0]) {
-      feedback.push(`⭐ This market needed higher quality (${quality}/5 wasn't enough).`)
+      feedback.push(`This market needed higher quality (${quality}/5 wasn't enough).`)
     } else {
-      feedback.push(`🔧 You may have over-engineered for this market (${quality}/5 cost too much: ${qualityCosts[quality - 1]}/cup).`)
+      feedback.push(`You over-invested in quality for this market (${quality}/5 cost too much: ${qualityCosts[quality - 1]}/cup).`)
     }
   }
-  
+
   if (!marketingOptimal) {
     if (marketing < scenario.optimalDecision.marketingRange[0]) {
-      feedback.push(`📢 This market needed more marketing buzz ($${marketing} wasn't enough).`)
+      feedback.push(`This market needed more marketing buzz ($${marketing} wasn't enough).`)
     } else {
-      feedback.push(`📊 You may have over-spent on marketing ($${marketing} was more than needed).`)
+      feedback.push(`You over-spent on marketing ($${marketing} was more than needed).`)
     }
   }
-  
-  // Profit feedback with scenario context
+
+  // Profit feedback
   if (profit > 50) {
-    feedback.push("🎉 **Outstanding profit!** You mastered this market challenge!")
+    feedback.push('**Outstanding profit!** You mastered this market challenge!')
   } else if (profit > 25) {
-    feedback.push("✅ **Solid profit!** Good job navigating this scenario.")
+    feedback.push('**Solid profit!** Good job navigating this scenario.')
   } else if (profit > 0) {
-    feedback.push("📈 **Small profit.** You survived this tricky market!")
+    feedback.push('**Small profit.** You survived this tricky market!')
   } else if (profit > -20) {
-    feedback.push("📚 **Small loss.** Deceptive markets teach valuable lessons!")
+    feedback.push('**Small loss.** Deceptive markets teach valuable lessons!')
   } else {
-    feedback.push("⚠️ **Big loss!** This market was trickier than it seemed.")
+    feedback.push('**Big loss!** This market was trickier than it seemed.')
   }
-  
+
   return feedback
 }
 
-// Daily scenarios with deceptive elements
-const DAILY_SCENARIOS: DailyScenario[] = [
-  {
-    id: 'sports-day',
-    title: 'Big Sports Tournament',
-    story: 'A huge sports tournament is happening at the nearby park! Hundreds of athletes and families are expected. The organizers mentioned they want "premium refreshments" for the event.',
-    hint: 'Athletes need hydration, but families might be budget-conscious...',
-    targetMarket: 'Sports families (mixed budget sensitivity)',
-    deceptionLevel: 'medium',
-    optimalDecision: {
-      priceRange: [0.75, 1.25],
-      qualityRange: [3, 4],
-      marketingRange: [15, 25]
-    },
-    weatherEffect: 1.3,
-    marketCondition: 'High demand, mixed price sensitivity'
-  },
-  {
-    id: 'fancy-neighborhood',
-    title: 'Upscale Neighborhood Event',
-    story: 'You got invited to set up in the wealthy Maple Heights neighborhood during their garden party weekend. Everyone drives luxury cars and the houses are huge!',
-    hint: 'Rich people can afford anything... or can they?',
-    targetMarket: 'Wealthy residents (surprisingly price-sensitive for small purchases)',
-    deceptionLevel: 'high',
-    optimalDecision: {
-      priceRange: [0.50, 1.00],
-      qualityRange: [4, 5],
-      marketingRange: [5, 15]
-    },
-    weatherEffect: 1.1,
-    marketCondition: 'Deceptive: Wealthy but frugal on small items'
-  },
-  {
-    id: 'school-fundraiser',
-    title: 'School Fundraiser Event',
-    story: 'The local elementary school is having a fundraiser and asked you to participate. Parents are coming to support their kids, and everyone seems excited about helping raise money.',
-    hint: 'Parents at fundraisers usually want to support causes...',
-    targetMarket: 'Parents supporting school (willing to pay premium for good cause)',
-    deceptionLevel: 'low',
-    optimalDecision: {
-      priceRange: [1.25, 1.75],
-      qualityRange: [3, 5],
-      marketingRange: [10, 20]
-    },
-    weatherEffect: 1.2,
-    marketCondition: 'Premium pricing accepted for good cause'
-  },
-  {
-    id: 'hot-weather',
-    title: 'Record Heat Wave',
-    story: `It's the hottest day of the year! The weather forecast shows 95°F with high humidity. People are desperately looking for ways to cool down, and the ice cream truck already sold out.`,
-    hint: 'Everyone needs something cold, but heat makes people grumpy...',
-    targetMarket: 'Everyone (desperate for refreshment but heat-stressed)',
-    deceptionLevel: 'medium',
-    optimalDecision: {
-      priceRange: [1.00, 1.50],
-      qualityRange: [2, 4],
-      marketingRange: [5, 15]
-    },
-    weatherEffect: 1.4,
-    marketCondition: 'High demand but quality less important than availability'
-  },
-  {
-    id: 'tourist-trap',
-    title: 'Tourist Area Setup',
-    story: 'You managed to get a spot near the famous downtown tourist district! Buses full of visitors are arriving, cameras flashing everywhere. Tour guides are pointing out "authentic local experiences."',
-    hint: 'Tourists love authentic experiences and unique local flavors...',
-    targetMarket: 'Tourists (expecting authentic premium experience)',
-    deceptionLevel: 'high',
-    optimalDecision: {
-      priceRange: [1.50, 2.00],
-      qualityRange: [4, 5],
-      marketingRange: [20, 30]
-    },
-    weatherEffect: 1.0,
-    marketCondition: 'Premium pricing works with high quality and marketing'
-  },
-  {
-    id: 'rainy-day',
-    title: 'Unexpected Rain Shower',
-    story: 'Dark clouds rolled in and light rain started falling. Most outdoor events got cancelled, but you notice people with umbrellas still walking by, looking a bit sad about their ruined plans.',
-    hint: 'Bad weather usually hurts business, but maybe people need cheering up?',
-    targetMarket: 'Disappointed people seeking comfort (low volume, comfort pricing)',
-    deceptionLevel: 'medium',
-    optimalDecision: {
-      priceRange: [0.75, 1.25],
-      qualityRange: [4, 5],
-      marketingRange: [0, 10]
-    },
-    weatherEffect: 0.6,
-    marketCondition: 'Low volume but high quality needed for comfort'
-  },
-  {
-    id: 'budget-conscious',
-    title: 'End-of-Month Community',
-    story: 'You set up in a working-class neighborhood near the end of the month. You overhear conversations about "waiting for payday" and "stretching the budget." But kids are still asking their parents for treats.',
-    hint: 'People are tight on money, but kids really want lemonade...',
-    targetMarket: 'Budget-conscious families (price very sensitive)',
-    deceptionLevel: 'low',
-    optimalDecision: {
-      priceRange: [0.25, 0.75],
-      qualityRange: [2, 3],
-      marketingRange: [5, 15]
-    },
-    weatherEffect: 1.0,
-    marketCondition: 'Volume pricing strategy needed'
-  },
-  {
-    id: 'health-conscious',
-    title: 'Yoga Studio Grand Opening',
-    story: 'A new organic yoga studio is opening next door, and they invited you to provide refreshments! Everyone is talking about "clean eating," "natural ingredients," and "wellness journeys."',
-    hint: 'Health-conscious people care about quality and natural ingredients...',
-    targetMarket: 'Health enthusiasts (quality over price)',
-    deceptionLevel: 'low',
-    optimalDecision: {
-      priceRange: [1.25, 1.75],
-      qualityRange: [4, 5],
-      marketingRange: [10, 25]
-    },
-    weatherEffect: 1.1,
-    marketCondition: 'Premium quality commands premium pricing'
-  },
-  {
-    id: 'competition-day',
-    title: 'Rival Lemonade Stand Nearby',
-    story: 'Oh no! Another lemonade stand opened just across the street. They have fancy signs and seem to be charging $0.50 per cup. Customers are looking back and forth between both stands.',
-    hint: 'Competition means you need to stand out somehow...',
-    targetMarket: 'Price-comparing customers (need clear value proposition)',
-    deceptionLevel: 'high',
-    optimalDecision: {
-      priceRange: [0.50, 1.00],
-      qualityRange: [4, 5],
-      marketingRange: [15, 30]
-    },
-    weatherEffect: 1.0,
-    marketCondition: 'Differentiation through quality and marketing crucial'
-  },
-  {
-    id: 'lunch-rush',
-    title: 'Business District Lunch Rush',
-    story: 'You set up near the business district during lunch hour. Office workers in suits are rushing by, checking their phones, grabbing quick lunches. They seem to have money but very little time.',
-    hint: 'Business people have money but are always in a hurry...',
-    targetMarket: 'Busy professionals (time-sensitive, less price-sensitive)',
-    deceptionLevel: 'medium',
-    optimalDecision: {
-      priceRange: [1.00, 1.50],
-      qualityRange: [3, 4],
-      marketingRange: [5, 15]
-    },
-    weatherEffect: 1.1,
-    marketCondition: 'Convenience and speed more important than lowest price'
-  }
-]
+// ============================================================================
+// Debounced Backend Sync (module-level timers, shared across store)
+// ============================================================================
 
-// Team colors for visual distinction
-const TEAM_COLORS = [
-  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FECA57',
-  '#FF9FF3', '#54A0FF', '#5F27CD', '#00D2D3', '#FF9F43',
-  '#FF6348', '#2ED573', '#3742FA', '#F368E0', '#FFA502'
-]
+/**
+ * Timeout handle for the debounced sync. Cleared and reset on every new
+ * sync request so that rapid state changes coalesce into a single backend write.
+ */
+let syncTimeout: ReturnType<typeof setTimeout> | null = null
 
-// Helper function to generate unique room IDs
-const generateGameRoomId = (): string => {
-  const adjectives = ['Cool', 'Fast', 'Smart', 'Bright', 'Sweet', 'Fresh', 'Happy', 'Lucky', 'Super', 'Epic']
-  const nouns = ['Lemons', 'Stand', 'Market', 'Juice', 'Booth', 'Corner', 'Shop', 'Spot', 'Zone', 'Hub']
-  const numbers = Math.floor(Math.random() * 9000) + 1000 // 4-digit number
-  
-  const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)]
-  const randomNoun = nouns[Math.floor(Math.random() * nouns.length)]
-  
-  return `${randomAdjective}${randomNoun}${numbers}`
-}
+/**
+ * Timeout handle for the current retry after a failed sync attempt.
+ * Only one retry chain runs at a time; starting a new debounced sync
+ * does NOT cancel an in-flight retry so it can finish independently.
+ */
+let retryTimeout: ReturnType<typeof setTimeout> | null = null
+
+/** Exponential backoff delays for sync retries (in milliseconds). */
+const SYNC_RETRY_DELAYS = [1000, 2000, 4000] as const
+
+// ============================================================================
+// Zustand Store
+// ============================================================================
 
 export const useGameStore = create<GameState>()(
   persist(
     (set, get) => ({
-      budget: 100,
+      // ====================================================================
+      // Initial State
+      // ====================================================================
+
       currentDecision: {
         price: 1.00,
         quality: 3,
-        marketing: 10
+        marketing: 10,
       },
-      result: null,
+      lastSimulationResult: null,
       isSimulating: false,
-      day: 1,
-      currentScenario: DAILY_SCENARIOS[0], // Start with first scenario
-      
-      // Authentication state
+      currentScenario: LEVEL_SCENARIOS.length > 0 ? (LEVEL_SCENARIOS[0] ?? null) : null,
+
+      // Authentication
       user: null,
       isAuthenticated: false,
       isAuthenticating: false,
-      
-      // Game room state
+
+      // Game room
       currentGameRoom: null,
       availableGameRooms: [],
       isLoadingRooms: false,
-      
-      // Multi-team state (within current room)
-      teams: [],
-      currentTeam: null,
-      gameMode: 'single',
 
-      // Multi-factor scoring state
-      riskManagementScores: new Map<string, RiskManagementInput>(),
-      finalScores: new Map<string, MultiFactorScore>(),
+      // Players
+      players: [],
+      currentPlayer: null,
+
+      // Real-time subscription
+      _roomUnsubscribe: null,
+
+      // Room join error
+      roomJoinError: null,
+
+      // ====================================================================
+      // Decision Actions
+      // ====================================================================
 
       updateDecision: (decision) => set((state) => ({
-        currentDecision: { ...state.currentDecision, ...decision }
+        currentDecision: { ...state.currentDecision, ...decision },
       })),
-      
-      runSimulation: () => {
-        set({ isSimulating: true })
-        
-        // Simulate processing time for dramatic effect
-        setTimeout(() => {
-          const { currentDecision, budget, currentTeam, teams, day } = get()
-          
-          // Get scenario based on team's current day (team-specific scenarios)
-          const teamDay = currentTeam ? currentTeam.day : day
-          const scenario = get().getDailyScenario(teamDay)
-          
-          const result = simulateBusiness(currentDecision, budget, scenario)
-          
-          // Calculate new budget after profit/loss
-          const newBudget = budget + result.profit
-          
-          // Update team stats if in multi-team mode
-          if (currentTeam) {
-            const { currentGameRoom, availableGameRooms } = get()
 
-            // Build a RoundResult for round history
-            const roundResult: RoundResult = {
-              round: teamDay,
-              scenarioId: scenario.id,
-              decision: { ...currentDecision },
-              cupsMade: result.cupsMade,
-              cupsSold: result.cupsSold,
-              spoilageRate: result.spoilageRate,
-              revenue: result.revenue,
-              costs: result.costs,
-              profit: result.profit,
-              decisionQuality: result.decisionQuality,
-              timestamp: Date.now(),
-            }
+      // ====================================================================
+      // Level / Scenario Actions
+      // ====================================================================
 
-            const updatedTeams = teams.map(team => {
-              if (team.id === currentTeam.id) {
-                return {
-                  ...team,
-                  profit: team.profit + result.profit,
-                  revenue: team.revenue + result.revenue,
-                  cupsSold: team.cupsSold + result.cupsSold,
-                  totalCupsMade: team.totalCupsMade + result.cupsMade,
-                  profitableRounds: team.profitableRounds + (result.profit > 0 ? 1 : 0),
-                  gamesPlayed: team.gamesPlayed + 1,
-                  lastResult: result,
-                  roundHistory: [...team.roundHistory, roundResult],
-                  timestamp: Date.now(),
-                  currentBudget: newBudget,
-                  day: day
-                }
-              }
-              return team
-            })
-            
-            // Update the room in availableGameRooms if we're in a room
-            let updatedRooms = availableGameRooms
-            let updatedCurrentRoom = currentGameRoom
-            
-            if (currentGameRoom) {
-              updatedRooms = availableGameRooms.map(room => 
-                room.id === currentGameRoom.id 
-                  ? { ...room, teams: updatedTeams }
-                  : room
-              )
-              updatedCurrentRoom = { ...currentGameRoom, teams: updatedTeams }
-            }
-            
-            set({ 
-              result,
-              isSimulating: false,
-              teams: updatedTeams,
-              budget: newBudget,
-              availableGameRooms: updatedRooms,
-              currentGameRoom: updatedCurrentRoom
-            })
-            
-            // Update backend asynchronously (don't block UI)
-            get().updateRoomInBackend(updatedTeams).catch(console.error)
-          } else {
-            // Single player mode - update budget directly
-            set({ 
-              result,
-              isSimulating: false,
-              budget: newBudget
-            })
-          }
-        }, 1500)
-      },
-      
-      resetGame: () => {
-        const scenario = DAILY_SCENARIOS[0] // First scenario for day 1
-        set({
-          budget: 100,
-          currentDecision: {
-            price: 1.00,
-            quality: 3,
-            marketing: 10
+      getLevelScenario: (level: number): LevelScenario => {
+        // Levels are 1-indexed; LEVEL_SCENARIOS array is 0-indexed
+        const index = level - 1
+        if (index >= 0 && index < LEVEL_SCENARIOS.length) {
+          return LEVEL_SCENARIOS[index]!
+        }
+
+        // Fallback: return the last available scenario if level exceeds data
+        // This should not happen with a properly populated scenarios file
+        if (LEVEL_SCENARIOS.length > 0) {
+          return LEVEL_SCENARIOS[LEVEL_SCENARIOS.length - 1]!
+        }
+
+        // Emergency fallback if scenarios haven't been loaded yet
+        return {
+          level,
+          day: Math.ceil(level / LEVELS_PER_DAY),
+          title: `Level ${level}`,
+          story: 'A new business day awaits!',
+          hint: 'Read the market carefully.',
+          targetMarket: 'General public',
+          deceptionLevel: 'low',
+          optimalDecision: {
+            priceRange: [0.75, 1.25],
+            qualityRange: [2, 4],
+            marketingRange: [5, 20],
           },
-          result: null,
-          isSimulating: false,
-          day: 1,
-          currentScenario: scenario
-        })
+          weatherEffect: 1.0,
+          marketCondition: 'Normal conditions',
+          loanOffer: null,
+        }
       },
-      
-      startNewDay: () => {
-        const { day, currentTeam, teams } = get()
-        
-        // Update day for current team if in multi-team mode
-        if (currentTeam) {
-          const { currentGameRoom, availableGameRooms } = get()
-          const newDay = currentTeam.day + 1
-          const newScenario = get().getDailyScenario(newDay)
-          
-          const updatedTeams = teams.map(team => {
-            if (team.id === currentTeam.id) {
-              return {
-                ...team,
-                day: newDay
-              }
-            }
-            return team
-          })
-          
-          // Update the current team reference
-          const updatedCurrentTeam = updatedTeams.find(t => t.id === currentTeam.id)!
-          
-          // Update the room in availableGameRooms if we're in a room
-          let updatedRooms = availableGameRooms
-          let updatedCurrentRoom = currentGameRoom
-          
-          if (currentGameRoom) {
-            updatedRooms = availableGameRooms.map(room => 
-              room.id === currentGameRoom.id 
-                ? { ...room, teams: updatedTeams }
+
+      isLevelUnlocked: (level: number, campStartDate?: string): boolean => {
+        const { currentGameRoom } = get()
+        const startDate = campStartDate || currentGameRoom?.campStartDate
+
+        // If no camp start date is configured, all levels are accessible
+        // (useful for testing / single-player mode without a room)
+        if (!startDate) return level >= 1 && level <= MAX_LEVEL
+
+        return checkLevelUnlocked(level, startDate)
+      },
+
+      // ====================================================================
+      // Simulation
+      // ====================================================================
+
+      runSimulation: () => {
+        const { currentPlayer, currentDecision, players, currentGameRoom, availableGameRooms } = get()
+
+        if (!currentPlayer || currentPlayer.isGameOver) return
+        if (currentPlayer.budget < FIXED_COSTS_PER_LEVEL) return
+
+        set({ isSimulating: true })
+
+        // Simulate processing time for dramatic effect (1.5 seconds)
+        setTimeout(() => {
+          // Re-read state inside timeout to get the latest values
+          // (the player may have accepted a loan between clicking "run" and this executing)
+          const freshState = get()
+          const freshPlayer = freshState.currentPlayer
+          if (!freshPlayer) {
+            set({ isSimulating: false })
+            return
+          }
+
+          const level = freshPlayer.currentLevel
+          const scenario = freshState.getLevelScenario(level)
+          const budgetBeforeSimulation = freshPlayer.budget
+
+          // Run the core business simulation
+          const result = simulateBusiness(freshState.currentDecision, budgetBeforeSimulation, scenario)
+
+          // Calculate budget after profit/loss
+          let newBudget = roundCurrency(budgetBeforeSimulation + result.profit)
+
+          // Process loan repayment (deducted after profit calculation)
+          const loanResult = processLoanRepayment(freshPlayer, level)
+          newBudget = roundCurrency(newBudget - loanResult.repaymentAmount)
+
+          // Build the level result record
+          const levelResult: LevelResult = {
+            level,
+            scenario: scenario.title,
+            decisions: { ...freshState.currentDecision },
+            cupsSold: result.cupsSold,
+            revenue: result.revenue,
+            costs: result.costs,
+            profit: result.profit,
+            budgetAfter: newBudget,
+            loanRepaymentDeducted: loanResult.repaymentAmount,
+            loanAcceptedThisLevel: false, // Will be true if acceptLoan was called before simulation
+            loanAmountReceived: 0,
+            feedback: result.feedback,
+            timestamp: new Date().toISOString(),
+          }
+
+          // Check for any loan that was accepted this level (reflected in the player's loan state)
+          if (freshPlayer.activeLoan && freshPlayer.activeLoan.acceptedAtLevel === level) {
+            levelResult.loanAcceptedThisLevel = true
+            levelResult.loanAmountReceived = freshPlayer.activeLoan.amount
+          }
+
+          // Determine if the game is over
+          const isGameOver = newBudget < MINIMUM_OPERATING_BUDGET
+
+          // Build the updated player
+          const updatedPlayer: Player = {
+            ...freshPlayer,
+            budget: newBudget,
+            completedLevels: [...freshPlayer.completedLevels, level],
+            currentLevel: isGameOver ? level : Math.min(level + 1, MAX_LEVEL + 1),
+            totalProfit: roundCurrency(freshPlayer.totalProfit + result.profit - loanResult.repaymentAmount),
+            totalRevenue: roundCurrency(freshPlayer.totalRevenue + result.revenue),
+            totalCupsSold: freshPlayer.totalCupsSold + result.cupsSold,
+            peakBudget: Math.max(freshPlayer.peakBudget, newBudget),
+            lowestBudget: Math.min(freshPlayer.lowestBudget, newBudget),
+            activeLoan: loanResult.updatedLoan,
+            loanHistory: loanResult.newLoanRecord
+              ? [...freshPlayer.loanHistory, loanResult.newLoanRecord]
+              : freshPlayer.loanHistory,
+            levelResults: [...freshPlayer.levelResults, levelResult],
+            isGameOver,
+            gameOverAtLevel: isGameOver ? level : null,
+          }
+
+          // Update the player in the players array
+          const updatedPlayers = freshState.players.map(p =>
+            p.id === updatedPlayer.id ? updatedPlayer : p
+          )
+
+          // Update the room's player list
+          let updatedRooms = freshState.availableGameRooms
+          let updatedCurrentRoom = freshState.currentGameRoom
+
+          if (updatedCurrentRoom) {
+            updatedCurrentRoom = { ...updatedCurrentRoom, players: updatedPlayers }
+            updatedRooms = freshState.availableGameRooms.map(room =>
+              room.id === updatedCurrentRoom!.id
+                ? { ...room, players: updatedPlayers }
                 : room
             )
-            updatedCurrentRoom = { ...currentGameRoom, teams: updatedTeams }
           }
-          
+
           set({
-            day: newDay,
-            teams: updatedTeams,
-            currentTeam: updatedCurrentTeam,
-            result: null,
-            currentScenario: newScenario,
-            currentDecision: {
-              price: 1.00,
-              quality: 3,
-              marketing: 10
-            },
+            lastSimulationResult: result,
+            isSimulating: false,
+            players: updatedPlayers,
+            currentPlayer: updatedPlayer,
+            currentGameRoom: updatedCurrentRoom,
             availableGameRooms: updatedRooms,
-            currentGameRoom: updatedCurrentRoom
           })
-          
-          // Update backend asynchronously
-          get().updateRoomInBackend(updatedTeams).catch(console.error)
-        } else {
-          // Single player mode
-          const newDay = day + 1
-          const newScenario = get().getDailyScenario(newDay)
-          
-          set({
-            day: newDay,
-            result: null,
-            currentScenario: newScenario,
-            currentDecision: {
-              price: 1.00,
-              quality: 3,
-              marketing: 10
-            }
-          })
-        }
+
+          // Persist to backend asynchronously via debounced sync (don't block UI)
+          get().debouncedSync(updatedPlayers)
+        }, 1500)
       },
-      
-      // Backend-persistent game room management
-      createGameRoom: async (name: string) => {
-        const { isAuthenticated } = get()
-        if (!isAuthenticated) {
-          throw new Error('Authentication required to create game rooms')
+
+      // ====================================================================
+      // Loan Actions
+      // ====================================================================
+
+      acceptLoan: () => {
+        const { currentPlayer, players, currentGameRoom, availableGameRooms } = get()
+
+        if (!currentPlayer || currentPlayer.isGameOver) return
+
+        // Cannot accept if already has an active loan
+        if (currentPlayer.activeLoan) return
+
+        const scenario = get().getLevelScenario(currentPlayer.currentLevel)
+        if (!scenario.loanOffer) return
+
+        const offer = scenario.loanOffer
+
+        // Create the active loan
+        const activeLoan: ActiveLoan = {
+          amount: offer.amount,
+          repaymentPerLevel: offer.repaymentPerLevel,
+          remainingBalance: offer.totalRepayment,
+          levelsRemaining: offer.durationLevels,
+          acceptedAtLevel: currentPlayer.currentLevel,
+          totalRepayment: offer.totalRepayment,
         }
 
-        const roomId = generateGameRoomId()
-        const newRoom: GameRoom = {
-          id: roomId,
-          name: name.trim() || `Game Room ${roomId}`,
-          teams: [],
-          createdAt: Date.now(),
-          isActive: true
+        // Add loan amount to budget immediately
+        const newBudget = roundCurrency(currentPlayer.budget + offer.amount)
+
+        const updatedPlayer: Player = {
+          ...currentPlayer,
+          budget: newBudget,
+          activeLoan,
+          peakBudget: Math.max(currentPlayer.peakBudget, newBudget),
         }
-        
-        try {
-          // Save to backend
-          await table.addItem('ex4h3iac854w', {
-            room_id: roomId,
-            room_name: newRoom.name,
-            teams: JSON.stringify(newRoom.teams),
-            created_at: newRoom.createdAt,
-            last_updated: Date.now()
-          })
-          
-          set((state) => ({
-            availableGameRooms: [...state.availableGameRooms, newRoom],
-            currentGameRoom: newRoom,
-            teams: [],
-            currentTeam: null,
-            gameMode: 'single',
-            // Reset game state for new room
-            budget: 100,
-            day: 1,
-            result: null,
-            currentScenario: DAILY_SCENARIOS[0]
-          }))
-          
-          return roomId
-        } catch (error) {
-          console.error('Failed to create game room:', error)
-          throw error
+
+        const updatedPlayers = players.map(p =>
+          p.id === updatedPlayer.id ? updatedPlayer : p
+        )
+
+        let updatedCurrentRoom = currentGameRoom
+        let updatedRooms = availableGameRooms
+        if (updatedCurrentRoom) {
+          updatedCurrentRoom = { ...updatedCurrentRoom, players: updatedPlayers }
+          updatedRooms = availableGameRooms.map(room =>
+            room.id === updatedCurrentRoom!.id
+              ? { ...room, players: updatedPlayers }
+              : room
+          )
         }
-      },
-      
-      joinGameRoom: async (roomId: string) => {
-        try {
-          // Search for room in backend
-          const response = await table.getItems('ex4h3iac854w', {
-            query: { room_id: roomId }
-          })
-          
-          if (response.items.length > 0) {
-            const roomData = response.items[0]
-            const room: GameRoom = {
-              id: roomData.room_id,
-              name: roomData.room_name,
-              teams: JSON.parse(roomData.teams || '[]'),
-              createdAt: roomData.created_at,
-              isActive: true
-            }
-            
-            set((state) => ({
-              currentGameRoom: room,
-              teams: room.teams,
-              currentTeam: null,
-              gameMode: room.teams.length > 0 ? 'multi' : 'single',
-              // Reset personal game state when joining room
-              budget: 100,
-              day: 1,
-              result: null,
-              currentScenario: DAILY_SCENARIOS[0],
-              // Add to local available rooms if not already there
-              availableGameRooms: state.availableGameRooms.some(r => r.id === room.id) 
-                ? state.availableGameRooms 
-                : [...state.availableGameRooms, room]
-            }))
-            return true
-          }
-          return false
-        } catch (error) {
-          console.error('Failed to join game room:', error)
-          return false
-        }
-      },
-      
-      leaveGameRoom: () => {
+
         set({
-          currentGameRoom: null,
-          teams: [],
-          currentTeam: null,
-          gameMode: 'single',
-          // Reset to default game state
-          budget: 100,
-          day: 1,
-          result: null,
-          currentScenario: DAILY_SCENARIOS[0]
+          currentPlayer: updatedPlayer,
+          players: updatedPlayers,
+          currentGameRoom: updatedCurrentRoom,
+          availableGameRooms: updatedRooms,
         })
       },
-      
-      loadGameRooms: async () => {
-        set({ isLoadingRooms: true })
-        try {
-          const response = await table.getItems('ex4h3iac854w', {
-            limit: 50,
-            sort: 'last_updated', 
-            order: 'desc'
-          })
-          
-          const rooms: GameRoom[] = response.items.map(item => ({
-            id: item.room_id,
-            name: item.room_name,
-            teams: JSON.parse(item.teams || '[]'),
-            createdAt: item.created_at,
-            isActive: true
-          }))
-          
-          set({ availableGameRooms: rooms })
-        } catch (error) {
-          console.error('Failed to load game rooms:', error)
-        } finally {
-          set({ isLoadingRooms: false })
-        }
+
+      declineLoan: () => {
+        // No-op on state; the player simply does not receive the loan.
+        // This action exists for UI clarity and potential analytics tracking.
       },
 
-      refreshCurrentRoom: async () => {
-        const { currentGameRoom } = get()
-        if (!currentGameRoom) return
-        
-        try {
-          const response = await table.getItems('ex4h3iac854w', {
-            query: { room_id: currentGameRoom.id }
-          })
-          
-          if (response.items.length > 0) {
-            const roomData = response.items[0]
-            const updatedRoom: GameRoom = {
-              id: roomData.room_id,
-              name: roomData.room_name,
-              teams: JSON.parse(roomData.teams || '[]'),
-              createdAt: roomData.created_at,
-              isActive: true
-            }
-            
-            set((state) => ({
-              currentGameRoom: updatedRoom,
-              teams: updatedRoom.teams,
-              availableGameRooms: state.availableGameRooms.map(room => 
-                room.id === updatedRoom.id ? updatedRoom : room
-              )
-            }))
-          }
-        } catch (error) {
-          console.error('Failed to refresh current room:', error)
-        }
-      },
+      // ====================================================================
+      // Game Lifecycle
+      // ====================================================================
 
-      getGameRoomById: (roomId: string) => {
-        const { availableGameRooms } = get()
-        return availableGameRooms.find(r => r.id === roomId) || null
-      },
-      
-      // Team management functions (within current room)
-      addTeam: async (name: string) => {
-        const { teams, currentGameRoom, availableGameRooms, isAuthenticated } = get()
-        
-        if (!currentGameRoom) {
-          throw new Error('Cannot add team without a game room')
-        }
-        
-        if (!isAuthenticated) {
-          throw new Error('Authentication required to add teams')
-        }
-        
-        const newTeam: Team = {
-          id: `team-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          name: name.trim(),
-          color: TEAM_COLORS[teams.length % TEAM_COLORS.length],
-          profit: 0,
-          revenue: 0,
-          cupsSold: 0,
-          gamesPlayed: 0,
-          lastResult: null,
-          timestamp: Date.now(),
-          currentBudget: 100,
-          day: 1,
-          roundHistory: [],
-          totalCupsMade: 0,
-          profitableRounds: 0,
-          riskManagementScore: 0,
-          multiFactorScore: null
-        }
-        
-        const updatedTeams = [...teams, newTeam]
-        
-        try {
-          // Update in backend
-          const roomQuery = await table.getItems('ex4h3iac854w', {
-            query: { room_id: currentGameRoom.id }
-          })
-          
-          if (roomQuery.items.length > 0) {
-            const roomItem = roomQuery.items[0]
-            await table.updateItem('ex4h3iac854w', {
-              _uid: roomItem._uid,
-              _id: roomItem._id,
-              teams: JSON.stringify(updatedTeams),
-              last_updated: Date.now()
-            })
-          }
-          
-          // Update local state
-          const updatedRooms = availableGameRooms.map(room => 
-            room.id === currentGameRoom.id 
-              ? { ...room, teams: updatedTeams }
+      resetGame: () => {
+        const { currentPlayer, players, currentGameRoom, availableGameRooms } = get()
+
+        if (!currentPlayer) return
+
+        const resetPlayer = createNewPlayer(currentPlayer.id, currentPlayer.name, currentPlayer.roomId)
+
+        const updatedPlayers = players.map(p =>
+          p.id === resetPlayer.id ? resetPlayer : p
+        )
+
+        let updatedCurrentRoom = currentGameRoom
+        let updatedRooms = availableGameRooms
+        if (updatedCurrentRoom) {
+          updatedCurrentRoom = { ...updatedCurrentRoom, players: updatedPlayers }
+          updatedRooms = availableGameRooms.map(room =>
+            room.id === updatedCurrentRoom!.id
+              ? { ...room, players: updatedPlayers }
               : room
           )
-          
-          set({
-            teams: updatedTeams,
-            currentTeam: newTeam,
-            gameMode: 'multi',
-            availableGameRooms: updatedRooms,
-            currentGameRoom: { ...currentGameRoom, teams: updatedTeams }
-          })
-        } catch (error) {
-          console.error('Failed to add team:', error)
-          throw error
         }
-      },
-      
-      selectTeam: (teamId: string) => {
-        const { teams } = get()
-        const team = teams.find(t => t.id === teamId)
-        if (team) {
-          const teamScenario = get().getDailyScenario(team.day)
-          set({ 
-            currentTeam: team,
-            budget: team.currentBudget,
-            day: team.day,
-            currentScenario: teamScenario
-          })
-        }
-      },
-      
-      setGameMode: (mode: 'single' | 'multi') => {
-        set({ 
-          gameMode: mode,
-          currentTeam: mode === 'single' ? null : get().currentTeam
+
+        const firstScenario = get().getLevelScenario(1)
+
+        set({
+          currentPlayer: resetPlayer,
+          players: updatedPlayers,
+          currentDecision: { price: 1.00, quality: 3, marketing: 10 },
+          lastSimulationResult: null,
+          currentScenario: firstScenario,
+          currentGameRoom: updatedCurrentRoom,
+          availableGameRooms: updatedRooms,
         })
+
+        get().debouncedSync(updatedPlayers)
       },
-      
-      clearLeaderboard: () => {
-        const { currentGameRoom, availableGameRooms } = get()
-        
-        if (currentGameRoom) {
-          // Update the room in availableGameRooms to have empty teams
-          const updatedRooms = availableGameRooms.map(room => 
-            room.id === currentGameRoom.id 
-              ? { ...room, teams: [] }
-              : room
-          )
-          
-          set({
-            teams: [],
-            currentTeam: null,
-            gameMode: 'single',
-            availableGameRooms: updatedRooms,
-            currentGameRoom: { ...currentGameRoom, teams: [] }
-          })
-        } else {
-          set({
-            teams: [],
-            currentTeam: null,
-            gameMode: 'single'
-          })
-        }
-      },
-      
-      getLeaderboard: () => {
-        const { teams } = get()
-        return [...teams].sort((a, b) => {
-          // Primary sort by profit
-          if (b.profit !== a.profit) {
-            return b.profit - a.profit
-          }
-          // Secondary sort by revenue if profit is tied
-          if (b.revenue !== a.revenue) {
-            return b.revenue - a.revenue
-          }
-          // Tertiary sort by cups sold
-          return b.cupsSold - a.cupsSold
-        })
-      },
-      
-      /**
-       * Store a facilitator-assigned risk management score for a team.
-       * Updates the riskManagementScores map keyed by team ID.
-       */
-      setRiskManagementScore: (teamId: string, score: RiskManagementInput) => {
-        set((state) => {
-          const updated = new Map(state.riskManagementScores)
-          updated.set(teamId, score)
-          return { riskManagementScores: updated }
+
+      advanceToNextLevel: () => {
+        const { currentPlayer } = get()
+
+        if (!currentPlayer || currentPlayer.isGameOver) return
+
+        const nextLevel = currentPlayer.currentLevel
+        if (nextLevel > MAX_LEVEL) return
+
+        const nextScenario = get().getLevelScenario(nextLevel)
+
+        set({
+          lastSimulationResult: null,
+          currentScenario: nextScenario,
+          currentDecision: { price: 1.00, quality: 3, marketing: 10 },
         })
       },
 
-      /**
-       * Calculate final multi-factor scores for every team in the current game.
-       * Determines profit ranks via the scoring library, retrieves each team's
-       * facilitator-assigned risk management score, computes a MultiFactorScore
-       * per team, and stores the results in the finalScores map.
-       */
-      calculateMultiFactorScores: () => {
-        const { teams, riskManagementScores } = get()
-        if (teams.length === 0) return
+      // ====================================================================
+      // Authentication
+      // ====================================================================
 
-        // Step 1: Determine profit-based rank positions with tiebreakers
-        const profitRanks = calculateProfitRanks(teams)
-
-        // Step 2: Build a new finalScores map
-        const finalScores = new Map<string, MultiFactorScore>()
-
-        for (const team of teams) {
-          const rankEntry = profitRanks.find(r => r.teamId === team.id)!
-          const riskScore = riskManagementScores.get(team.id)?.total ?? 0
-          const score = calculateMultiFactorScore(team, rankEntry.rank, riskScore)
-          finalScores.set(team.id, score)
-        }
-
-        // Step 3: Persist scores onto each team object and update store
-        const updatedTeams = teams.map(team => ({
-          ...team,
-          multiFactorScore: finalScores.get(team.id) ?? null,
-        }))
-
-        set({ finalScores, teams: updatedTeams })
-      },
-
-      /**
-       * Generate the final leaderboard sorted by multi-factor score.
-       * Delegates to the scoring library's generateFinalLeaderboard, which
-       * calculates profit ranks, multi-factor scores, category awards, and
-       * tie detection. Returns an empty array when no teams exist.
-       */
-      getFinalLeaderboard: (): LeaderboardEntry[] => {
-        const { teams, riskManagementScores } = get()
-        if (teams.length === 0) return []
-
-        // Extract the total risk score per team (the library expects Map<string, number>)
-        const riskTotals = new Map<string, number>()
-        for (const [teamId, input] of riskManagementScores) {
-          riskTotals.set(teamId, input.total)
-        }
-
-        return generateFinalLeaderboard(teams, riskTotals)
-      },
-
-      getDailyScenario: (day: number) => {
-        // Cycle through scenarios, with some randomization
-        const scenarioIndex = (day - 1) % DAILY_SCENARIOS.length
-        return DAILY_SCENARIOS[scenarioIndex]
-      },
-
-      // Helper function to update room in backend
-      updateRoomInBackend: async (updatedTeams: Team[]) => {
-        const { currentGameRoom, isAuthenticated } = get()
-        if (!currentGameRoom || !isAuthenticated) return
-        
-        try {
-          const roomQuery = await table.getItems('ex4h3iac854w', {
-            query: { room_id: currentGameRoom.id }
-          })
-          
-          if (roomQuery.items.length > 0) {
-            const roomItem = roomQuery.items[0]
-            await table.updateItem('ex4h3iac854w', {
-              _uid: roomItem._uid,
-              _id: roomItem._id,
-              teams: JSON.stringify(updatedTeams),
-              last_updated: Date.now()
-            })
-          }
-        } catch (error) {
-          console.error('Failed to update room in backend:', error)
-        }
-      },
-
-      // Authentication methods
       sendOTP: async (email: string) => {
         set({ isAuthenticating: true })
         try {
@@ -1108,13 +1080,13 @@ export const useGameStore = create<GameState>()(
         set({ isAuthenticating: true })
         try {
           const response = await auth.verifyOTP(email, code)
-          set({ 
+          set({
             user: {
               uid: response.user.uid,
               email: response.user.email,
-              name: response.user.name
+              name: response.user.name,
             },
-            isAuthenticated: true 
+            isAuthenticated: true,
           })
         } catch (error) {
           console.error('Failed to verify OTP:', error)
@@ -1126,35 +1098,563 @@ export const useGameStore = create<GameState>()(
 
       logout: async () => {
         try {
+          // Unsubscribe from real-time updates before signing out
+          get().unsubscribeFromRoom()
+
+          // Cancel any pending sync timers so they don't fire after logout
+          if (syncTimeout) { clearTimeout(syncTimeout); syncTimeout = null }
+          if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null }
+
           await auth.logout()
-          set({ 
-            user: null, 
+          set({
+            user: null,
             isAuthenticated: false,
             currentGameRoom: null,
             availableGameRooms: [],
-            teams: [],
-            currentTeam: null,
-            gameMode: 'single'
+            players: [],
+            currentPlayer: null,
+            roomJoinError: null,
           })
         } catch (error) {
           console.error('Failed to logout:', error)
           throw error
         }
-      }
+      },
+
+      // ====================================================================
+      // Game Room Management
+      // ====================================================================
+
+      createGameRoom: async (name: string, campStartDate: string) => {
+        const { isAuthenticated } = get()
+        if (!isAuthenticated) {
+          throw new Error('Authentication required to create game rooms')
+        }
+
+        const roomId = generateGameRoomId()
+        const newRoom: GameRoom = {
+          id: roomId,
+          name: name.trim() || `Game Room ${roomId}`,
+          players: [],
+          createdAt: Date.now(),
+          isActive: true,
+          campStartDate,
+        }
+
+        // Set local state first so the app works even without backend
+        set((state) => ({
+          availableGameRooms: [...state.availableGameRooms, newRoom],
+          currentGameRoom: newRoom,
+          players: [],
+          currentPlayer: null,
+          lastSimulationResult: null,
+          currentScenario: get().getLevelScenario(1),
+        }))
+
+        // Sync to backend (non-blocking)
+        try {
+          await table.addItem('game_rooms', {
+            room_id: roomId,
+            room_name: newRoom.name,
+            players: JSON.stringify(newRoom.players),
+            camp_start_date: campStartDate,
+            created_at: newRoom.createdAt,
+            last_updated: Date.now(),
+          })
+        } catch (error) {
+          console.warn('Backend sync failed for createGameRoom (local-only mode):', error)
+        }
+
+        return roomId
+      },
+
+      joinGameRoom: async (roomId: string) => {
+        // Clear any previous join error
+        set({ roomJoinError: null })
+
+        // First check locally cached rooms
+        const { availableGameRooms } = get()
+        const localRoom = availableGameRooms.find(r => r.id === roomId)
+
+        // Try backend first
+        try {
+          const response = await table.getItems('game_rooms', {
+            query: { room_id: roomId },
+          })
+
+          if (response.items.length > 0) {
+            const roomData = response.items[0]!
+            const room: GameRoom = {
+              id: roomData.room_id,
+              name: roomData.room_name,
+              players: JSON.parse(roomData.players || '[]'),
+              createdAt: roomData.created_at,
+              isActive: true,
+              campStartDate: roomData.camp_start_date || '',
+            }
+
+            set((state) => ({
+              currentGameRoom: room,
+              players: room.players,
+              currentPlayer: null,
+              lastSimulationResult: null,
+              currentScenario: get().getLevelScenario(1),
+              availableGameRooms: state.availableGameRooms.some(r => r.id === room.id)
+                ? state.availableGameRooms
+                : [...state.availableGameRooms, room],
+              roomJoinError: null,
+            }))
+
+            // Subscribe to real-time updates for this room
+            get().subscribeToRoom()
+
+            return true
+          }
+        } catch (error) {
+          console.warn('Backend lookup failed, checking local rooms:', error)
+        }
+
+        // Fallback to locally cached room
+        if (localRoom) {
+          set({
+            currentGameRoom: localRoom,
+            players: localRoom.players,
+            currentPlayer: null,
+            lastSimulationResult: null,
+            currentScenario: get().getLevelScenario(1),
+            roomJoinError: null,
+          })
+
+          // Subscribe to real-time updates for the locally cached room
+          get().subscribeToRoom()
+
+          return true
+        }
+
+        // Room not found in backend or local cache
+        set({ roomJoinError: 'Room not found. Double-check the room code and try again.' })
+        return false
+      },
+
+      leaveGameRoom: () => {
+        // Unsubscribe from real-time updates before leaving
+        get().unsubscribeFromRoom()
+
+        // Cancel any pending sync timers so they don't fire after leaving
+        if (syncTimeout) { clearTimeout(syncTimeout); syncTimeout = null }
+        if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null }
+
+        set({
+          currentGameRoom: null,
+          players: [],
+          currentPlayer: null,
+          lastSimulationResult: null,
+          currentScenario: get().getLevelScenario(1),
+          currentDecision: { price: 1.00, quality: 3, marketing: 10 },
+          roomJoinError: null,
+        })
+      },
+
+      loadGameRooms: async () => {
+        set({ isLoadingRooms: true })
+        try {
+          const response = await table.getItems('game_rooms', {
+            limit: 50,
+            sort: 'last_updated',
+            order: 'desc',
+          })
+
+          const rooms: GameRoom[] = response.items.map(item => ({
+            id: item.room_id,
+            name: item.room_name,
+            players: JSON.parse(item.players || '[]'),
+            createdAt: item.created_at,
+            isActive: true,
+            campStartDate: item.camp_start_date || '',
+          }))
+
+          set({ availableGameRooms: rooms })
+        } catch (error) {
+          console.error('Failed to load game rooms:', error)
+        } finally {
+          set({ isLoadingRooms: false })
+        }
+      },
+
+      refreshCurrentRoom: async () => {
+        const { currentGameRoom } = get()
+        if (!currentGameRoom) return
+
+        try {
+          const response = await table.getItems('game_rooms', {
+            query: { room_id: currentGameRoom.id },
+          })
+
+          if (response.items.length > 0) {
+            const roomData = response.items[0]!
+            const updatedRoom: GameRoom = {
+              id: roomData.room_id,
+              name: roomData.room_name,
+              players: JSON.parse(roomData.players || '[]'),
+              createdAt: roomData.created_at,
+              isActive: true,
+              campStartDate: roomData.camp_start_date || '',
+            }
+
+            set((state) => ({
+              currentGameRoom: updatedRoom,
+              players: updatedRoom.players,
+              availableGameRooms: state.availableGameRooms.map(room =>
+                room.id === updatedRoom.id ? updatedRoom : room
+              ),
+            }))
+          }
+        } catch (error) {
+          console.error('Failed to refresh current room:', error)
+        }
+      },
+
+      getGameRoomById: (roomId: string) => {
+        const { availableGameRooms } = get()
+        return availableGameRooms.find(r => r.id === roomId) || null
+      },
+
+      // ====================================================================
+      // Player Management
+      // ====================================================================
+
+      addPlayer: async (name: string) => {
+        const { players, currentGameRoom, availableGameRooms } = get()
+
+        if (!currentGameRoom) {
+          throw new Error('Cannot add player without a game room')
+        }
+
+        // ------------------------------------------------------------------
+        // Reconnection: check if this player already exists in the room
+        // ------------------------------------------------------------------
+
+        // 1. Check for a stored player ID in localStorage (same browser tab/device)
+        const storageKey = `lemon-player-${currentGameRoom.id}`
+        const storedPlayerId = localStorage.getItem(storageKey)
+
+        if (storedPlayerId) {
+          const existingById = players.find(
+            p => p.id === storedPlayerId && p.roomId === currentGameRoom.id
+          )
+          if (existingById) {
+            // Resume the existing session — restore their scenario state
+            const playerScenario = get().getLevelScenario(existingById.currentLevel)
+            set({
+              currentPlayer: existingById,
+              currentScenario: playerScenario,
+              currentDecision: { price: 1.00, quality: 3, marketing: 10 },
+              lastSimulationResult: null,
+            })
+            return
+          }
+        }
+
+        // 2. Fallback: check for an existing player by name (case-insensitive)
+        //    in the same room. This handles the case where a player switches
+        //    devices or clears their browser storage.
+        const existingByName = players.find(
+          p => p.name.toLowerCase() === name.trim().toLowerCase()
+            && p.roomId === currentGameRoom.id
+        )
+
+        if (existingByName) {
+          // Persist the association so subsequent visits reconnect by ID
+          localStorage.setItem(storageKey, existingByName.id)
+          const playerScenario = get().getLevelScenario(existingByName.currentLevel)
+          set({
+            currentPlayer: existingByName,
+            currentScenario: playerScenario,
+            currentDecision: { price: 1.00, quality: 3, marketing: 10 },
+            lastSimulationResult: null,
+          })
+          return
+        }
+
+        // ------------------------------------------------------------------
+        // No existing player found — create a new one
+        // ------------------------------------------------------------------
+
+        const playerId = `player-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        const newPlayer = createNewPlayer(playerId, name, currentGameRoom.id)
+
+        // Store the new player ID so future visits reconnect automatically
+        localStorage.setItem(storageKey, newPlayer.id)
+
+        const updatedPlayers = [...players, newPlayer]
+
+        // Update local state first so the app works immediately
+        const updatedRooms = availableGameRooms.map(room =>
+          room.id === currentGameRoom.id
+            ? { ...room, players: updatedPlayers }
+            : room
+        )
+
+        const firstScenario = get().getLevelScenario(1)
+
+        set({
+          players: updatedPlayers,
+          currentPlayer: newPlayer,
+          currentScenario: firstScenario,
+          currentDecision: { price: 1.00, quality: 3, marketing: 10 },
+          lastSimulationResult: null,
+          availableGameRooms: updatedRooms,
+          currentGameRoom: { ...currentGameRoom, players: updatedPlayers },
+        })
+
+        // Sync to backend (non-blocking)
+        try {
+          const roomQuery = await table.getItems('game_rooms', {
+            query: { room_id: currentGameRoom.id },
+          })
+
+          if (roomQuery.items.length > 0) {
+            const roomItem = roomQuery.items[0]!
+            await table.updateItem('game_rooms', {
+              _uid: roomItem._uid,
+              _id: roomItem._id,
+              room_id: currentGameRoom.id,
+              players: JSON.stringify(updatedPlayers),
+              last_updated: Date.now(),
+            })
+          }
+        } catch (error) {
+          console.warn('Backend sync failed for addPlayer (local-only mode):', error)
+        }
+      },
+
+      selectPlayer: (playerId: string) => {
+        const { players } = get()
+        const player = players.find(p => p.id === playerId)
+
+        if (player) {
+          const playerScenario = get().getLevelScenario(player.currentLevel)
+          set({
+            currentPlayer: player,
+            currentScenario: playerScenario,
+            currentDecision: { price: 1.00, quality: 3, marketing: 10 },
+            lastSimulationResult: null,
+          })
+        }
+      },
+
+      // ====================================================================
+      // Leaderboard
+      // ====================================================================
+
+      getLeaderboard: (): LeaderboardEntry[] => {
+        const { players } = get()
+
+        const sorted = [...players].sort((a, b) => {
+          // Primary: total profit (descending)
+          if (b.totalProfit !== a.totalProfit) {
+            return b.totalProfit - a.totalProfit
+          }
+          // Secondary: total revenue (descending)
+          if (b.totalRevenue !== a.totalRevenue) {
+            return b.totalRevenue - a.totalRevenue
+          }
+          // Tertiary: total cups sold (descending)
+          if (b.totalCupsSold !== a.totalCupsSold) {
+            return b.totalCupsSold - a.totalCupsSold
+          }
+          // Quaternary: levels completed (descending)
+          return b.completedLevels.length - a.completedLevels.length
+        })
+
+        return sorted.map((player, index) => ({
+          rank: index + 1,
+          player,
+        }))
+      },
+
+      clearLeaderboard: () => {
+        const { currentGameRoom, availableGameRooms } = get()
+
+        if (currentGameRoom) {
+          const updatedRooms = availableGameRooms.map(room =>
+            room.id === currentGameRoom.id
+              ? { ...room, players: [] }
+              : room
+          )
+
+          set({
+            players: [],
+            currentPlayer: null,
+            availableGameRooms: updatedRooms,
+            currentGameRoom: { ...currentGameRoom, players: [] },
+          })
+        } else {
+          set({
+            players: [],
+            currentPlayer: null,
+          })
+        }
+      },
+
+      // ====================================================================
+      // Real-Time Subscription (BACK-001)
+      // ====================================================================
+
+      subscribeToRoom: () => {
+        const { currentGameRoom, _roomUnsubscribe } = get()
+        if (!currentGameRoom) return
+
+        // Tear down any existing subscription before creating a new one
+        if (_roomUnsubscribe) {
+          _roomUnsubscribe()
+        }
+
+        const roomId = currentGameRoom.id
+
+        const channel = table.subscribe('game_rooms', (payload: any) => {
+          const updatedRow = payload.new ?? payload
+          // Safety check: skip if the payload is for a different room
+          // (should not happen with server-side filter, but defense-in-depth)
+          if (updatedRow.room_id !== roomId) return
+
+          try {
+            const remotePlayers: Player[] = JSON.parse(updatedRow.players || '[]')
+            const { currentPlayer, players } = get()
+
+            // Merge remote players with local state. If we have a current
+            // player active, preserve their local state to avoid overwriting
+            // in-flight decisions.
+            const mergedPlayers = remotePlayers.map((remotePlayer) => {
+              if (currentPlayer && remotePlayer.id === currentPlayer.id) {
+                // Keep the local player's state (they are the authoritative source)
+                return currentPlayer
+              }
+              // For all other players, accept the remote state
+              const localPlayer = players.find(p => p.id === remotePlayer.id)
+              return localPlayer
+                ? { ...localPlayer, ...remotePlayer }
+                : remotePlayer
+            })
+
+            // Also check if the current player was removed remotely
+            // (e.g., facilitator cleared the room).
+            const currentPlayerStillExists = currentPlayer
+              ? mergedPlayers.some(p => p.id === currentPlayer.id)
+              : false
+
+            set((state) => ({
+              players: mergedPlayers,
+              currentGameRoom: state.currentGameRoom
+                ? { ...state.currentGameRoom, players: mergedPlayers }
+                : null,
+              currentPlayer: currentPlayerStillExists ? state.currentPlayer : null,
+            }))
+          } catch (error) {
+            console.error('Failed to process real-time room update:', error)
+          }
+        }, roomId)
+
+        // Store the unsubscribe function
+        const unsubscribe = () => {
+          channel.unsubscribe()
+        }
+
+        set({ _roomUnsubscribe: unsubscribe })
+      },
+
+      unsubscribeFromRoom: () => {
+        const { _roomUnsubscribe } = get()
+        if (_roomUnsubscribe) {
+          _roomUnsubscribe()
+          set({ _roomUnsubscribe: null })
+        }
+      },
+
+      // ====================================================================
+      // Backend Sync (BACK-005: debounced with retry)
+      // ====================================================================
+
+      updateRoomInBackend: async (updatedPlayers: Player[]) => {
+        const { currentGameRoom } = get()
+        if (!currentGameRoom) return
+
+        try {
+          const roomQuery = await table.getItems('game_rooms', {
+            query: { room_id: currentGameRoom.id },
+          })
+
+          if (roomQuery.items.length > 0) {
+            const roomItem = roomQuery.items[0]!
+            await table.updateItem('game_rooms', {
+              _uid: roomItem._uid,
+              _id: roomItem._id,
+              room_id: currentGameRoom.id,
+              players: JSON.stringify(updatedPlayers),
+              last_updated: Date.now(),
+            })
+          }
+        } catch (error) {
+          console.error('Failed to update room in backend:', error)
+          throw error
+        }
+      },
+
+      /**
+       * Debounced backend sync: coalesces rapid state changes into a single
+       * write after a 2-second quiet period. On failure, retries up to 3
+       * times with exponential backoff (1s, 2s, 4s).
+       */
+      debouncedSync: (_updatedPlayers: Player[]) => {
+        // Only cancel the pending primary sync; let any in-flight retry
+        // complete independently so a failed sync still gets its retry.
+        if (syncTimeout) clearTimeout(syncTimeout)
+
+        syncTimeout = setTimeout(() => {
+          // Read fresh state at execution time to avoid stale closure data
+          const latestPlayers = get().players
+          get().updateRoomInBackend(latestPlayers).catch((error) => {
+            console.warn('Backend sync failed, starting retry chain:', error)
+            // Launch retry chain with exponential backoff
+            const scheduleRetry = (attempt: number): void => {
+              if (attempt >= SYNC_RETRY_DELAYS.length) {
+                console.error(`Backend sync failed after ${SYNC_RETRY_DELAYS.length} retries. Continuing with local state.`)
+                return
+              }
+              retryTimeout = setTimeout(() => {
+                const { players: retryPlayers } = get()
+                get().updateRoomInBackend(retryPlayers).catch((retryError) => {
+                  console.warn(`Backend sync retry ${attempt + 1} failed:`, retryError)
+                  scheduleRetry(attempt + 1)
+                })
+              }, SYNC_RETRY_DELAYS[attempt])
+            }
+            scheduleRetry(0)
+          })
+        }, 2000)
+      },
     }),
     {
-      name: 'lemonade-game-storage',
-      // Persist authentication and limited game state (rooms are loaded from backend)
+      name: 'lemonade-game-storage-v2',
       partialize: (state) => ({
+        // Persist authentication
         user: state.user,
         isAuthenticated: state.isAuthenticated,
+        // Persist current room and player selection
         currentGameRoom: state.currentGameRoom,
-        teams: state.teams,
-        gameMode: state.gameMode,
-        // Persist budget and day for single player mode
-        budget: state.gameMode === 'single' ? state.budget : 100,
-        day: state.gameMode === 'single' ? state.day : 1
-      })
+        players: state.players,
+        currentPlayer: state.currentPlayer,
+      }),
+      onRehydrateStorage: () => {
+        // Called after Zustand restores persisted state from localStorage.
+        // If a game room was active before the page refresh, re-establish
+        // the real-time subscription so the player continues receiving updates.
+        return (state) => {
+          if (state?.currentGameRoom) {
+            state.subscribeToRoom()
+          }
+        }
+      },
     }
   )
 )
