@@ -1165,6 +1165,10 @@ export const useGameStore = create<GameState>()(
           console.warn('Backend sync failed for createGameRoom (local-only mode):', error)
         }
 
+        // Subscribe to real-time updates for the newly created room
+        // so the facilitator can see players joining in real-time
+        get().subscribeToRoom()
+
         return roomId
       },
 
