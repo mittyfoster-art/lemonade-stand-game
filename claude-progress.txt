@@ -1,5 +1,265 @@
 # Lemonade Stand Business Game - Progress Notes
 
+## Session: February 20, 2026 (Session 18 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+2. ✅ **Unit Tests** - 64 tests pass (vitest) - 2 test files (simulation.test.ts, game-flow.integration.test.ts)
+3. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+4. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+5. ✅ **Dark Mode Toggle** - Switches correctly between themes
+6. ✅ **Room Code Validation** - Invalid room code shows clear error message with format guidance
+7. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+8. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+
+### Features Regression Tested (Random Selection)
+- Feature #14: Room code validation and error handling
+- Feature #21: Dark mode support
+- Feature #20: TypeScript strict mode
+
+### Screenshots Captured
+- regression-session18-homepage.png
+- regression-session18-darkmode.png
+- regression-session18-validation.png
+- regression-session18-mobile.png
+- regression-session18-settings.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 4003
+- Start with: `npm run dev` or `npx vite --port 4003`
+
+---
+
+## Session: February 20, 2026 (Session 17 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+2. ✅ **Unit Tests** - 64 tests pass (vitest) - 2 test files (simulation.test.ts, game-flow.integration.test.ts)
+3. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+4. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+5. ✅ **Dark Mode Toggle** - Switches correctly between themes with toast notification "Theme changed to light mode"
+6. ✅ **Light Mode** - Proper WCAG-compliant contrast with warm cream background
+7. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+8. ✅ **Mobile Homepage** - Join game form displays correctly on mobile in light mode
+9. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+
+### Features Regression Tested (Random Selection)
+- Feature #19: Integration tests for game flow
+- Feature #7: Auth mock toggle (VITE_AUTH_MOCK)
+- Feature #4: Remove dead v1 scoring code
+
+### Screenshots Captured
+- regression-session17-homepage.png
+- regression-session17-settings.png
+- regression-session17-lightmode.png
+- regression-session17-mobile.png
+- regression-session17-mobile-homepage.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 4003
+- Start with: `npm run dev` or `npx vite --port 4003`
+
+---
+
+## Session: February 20, 2026 (Session 16 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+2. ✅ **Unit Tests** - 64 tests pass (vitest) - 2 test files (simulation.test.ts, game-flow.integration.test.ts)
+3. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+4. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+5. ✅ **Dark Mode Toggle** - Switches correctly between themes with toast notification "Theme changed to dark mode"
+6. ✅ **Light Mode** - Proper WCAG-compliant contrast with warm cream background
+7. ✅ **Loans Page** - Empty state shows correctly when no player is set up with "Join a Game" link
+8. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+9. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+
+### Features Regression Tested (Random Selection)
+- Feature #31: Settings page
+- Feature #17: Loan dashboard enhancement
+- Feature #22: Full data export for facilitator
+
+### Screenshots Captured
+- regression-session16-homepage.png
+- regression-session16-settings.png
+- regression-session16-darkmode.png
+- regression-session16-lightmode.png
+- regression-session16-loans.png
+- regression-session16-mobile.png
+- regression-session16-mobile-homepage.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 5173
+- Start with: `npm run dev` or `npx vite --port 5173`
+
+---
+
+## Session: February 20, 2026 (Session 15 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+2. ✅ **Unit Tests** - 64 tests pass (vitest) - 2 test files (simulation.test.ts, game-flow.integration.test.ts)
+3. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+4. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+5. ✅ **Dark Mode Toggle** - Switches correctly between themes with toast notification
+6. ✅ **Light Mode** - Proper WCAG-compliant contrast with warm cream background
+7. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+8. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+
+### Features Regression Tested (Random Selection)
+- Feature #10: Enhanced results page with decision quality feedback
+- Feature #27: Mobile responsiveness audit and fixes
+- Feature #31: Settings page
+
+### Screenshots Captured
+- regression-session15-homepage.png
+- regression-session15-settings.png
+- regression-session15-lightmode.png
+- regression-session15-mobile.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 4003
+- Start with: `npm run dev` or `npx vite --port 4003 --host`
+
+---
+
+## Session: February 20, 2026 (Session 14 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+2. ✅ **Unit Tests** - 64 tests pass (vitest) - 2 test files (simulation.test.ts, game-flow.integration.test.ts)
+3. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+4. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+5. ✅ **Dark Mode Toggle** - Switches correctly between themes with toast notification "Theme changed to light mode"
+6. ✅ **Light Mode** - Proper WCAG-compliant contrast with warm cream background
+7. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+8. ✅ **Mobile Dark Mode** - Join game form displays correctly on mobile in dark mode
+9. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+
+### Features Regression Tested (Random Selection)
+- Feature #19: Integration tests for game flow
+- Feature #15: Backend sync error recovery (debounce, retry)
+- Feature #20: TypeScript strict mode
+
+### Screenshots Captured
+- regression-session14-homepage.png
+- regression-session14-settings.png
+- regression-session14-lightmode.png
+- regression-session14-mobile.png
+- regression-session14-mobile-darkmode.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 4003
+- Start with: `npm run dev` or `npx vite --port 4003 --host`
+
+---
+
+## Session: February 20, 2026 (Session 13 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+2. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+3. ✅ **Dark Mode Toggle** - Switches correctly between themes with toast notification "Theme changed to dark mode"
+4. ✅ **Light Mode** - Proper WCAG-compliant contrast with warm cream background
+5. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+6. ✅ **Mobile Homepage** - Join game form displays correctly on mobile in dark mode
+7. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+8. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+9. ✅ **Unit Tests** - 64 tests pass (vitest)
+
+### Screenshots Captured
+- regression-session13-homepage.png
+- regression-session13-settings.png
+- regression-session13-darkmode.png
+- regression-session13-mobile.png
+- regression-session13-mobile-homepage.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 4003
+- Start with: `npm run dev` or `npx vite --port 4003 --host`
+
+---
+
+## Session: February 20, 2026 (Session 12 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+2. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+3. ✅ **Dark Mode Toggle** - Switches correctly between light and dark themes
+4. ✅ **Light Mode** - Proper WCAG-compliant contrast with warm cream background
+5. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+6. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+7. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+8. ✅ **Unit Tests** - 64 tests pass (vitest)
+
+### Screenshots Captured
+- regression-session12-homepage.png
+- regression-session12-lightmode.png
+- regression-session12-settings.png
+- regression-session12-mobile.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 4003
+- Start with: `npm run dev` or `npx vite --port 4003 --host`
+
+---
+
 ## Session: February 20, 2026 (Session 11 Regression)
 
 ### Progress Summary
