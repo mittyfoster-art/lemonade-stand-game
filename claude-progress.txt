@@ -1,5 +1,48 @@
 # Lemonade Stand Business Game - Progress Notes
 
+## Session: February 21, 2026 (Session 36 Regression)
+
+### Progress Summary
+- **Features Passing**: 32/32 (100%) - ALL FEATURES COMPLETE!
+- **Session Focus**: Routine regression testing with browser automation
+
+### Regression Tests Performed
+
+1. ✅ **TypeScript** - npx tsc --noEmit passes with no errors
+2. ✅ **Unit Tests** - 64 tests pass (vitest) - 2 test files (simulation.test.ts, game-flow.integration.test.ts)
+3. ✅ **Homepage** - Loads correctly with sidebar navigation, join game form, character counter (0 JS errors)
+4. ✅ **Settings Page** - All sections display (Appearance, Sound & Notifications, About, Danger Zone)
+5. ✅ **Dark Mode Toggle** - Switches correctly between themes with toast notification "Theme changed to dark mode"
+6. ✅ **Light Mode** - Proper WCAG-compliant contrast with warm cream background
+7. ✅ **Room Code Validation** - Invalid room code shows clear error "Invalid room code format" with format guidance
+8. ✅ **Mobile Responsiveness** - Layout adapts correctly at 375x667, bottom nav bar (Home, Play, Levels, Board, Profile)
+9. ✅ **Protected Routes** - Level Map correctly redirects unauthorized users to home (Feature #16)
+10. ✅ **Mock Backend Removed** - src/lib/mock-backend.ts is deleted, no references remain (Feature #5)
+11. ✅ **Character Counter** - Shows "12/20 characters" when typing name "TestPlayer36"
+12. ✅ **Console Errors** - 0 JavaScript errors (only 2 minor React Router deprecation warnings)
+
+### Features Regression Tested (Random Selection)
+- Feature #3: Fix player reconnection (duplicate entries)
+- Feature #5: Remove dead mock backend code
+- Feature #13: Facilitator dashboard enhancement
+
+### Screenshots Captured
+- regression-session36-homepage.png
+- regression-session36-settings.png
+- regression-session36-darkmode.png
+- regression-session36-mobile.png
+- regression-session36-validation.png
+- regression-session36-lightmode.png
+
+### Conclusion
+The Lemonade Stand Business Game remains fully functional and stable. All 32 features are working correctly with no regressions detected. No new features to implement.
+
+### Server Info
+- Dev server running on port 4003
+- Start with: `npm run dev` or `npx vite --port 4003`
+
+---
+
 ## Session: February 21, 2026 (Session 35 Regression)
 
 ### Progress Summary
