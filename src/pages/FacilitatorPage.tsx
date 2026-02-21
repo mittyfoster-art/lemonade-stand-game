@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -17,6 +17,7 @@ import {
   DollarSign,
   BarChart3,
   CreditCard,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useGameStore, type Player, type LevelResult } from "@/store/game-store";
 import { GameRoomManager } from "@/components/GameRoomManager";
+import { RoomAnalytics } from "@/components/RoomAnalytics";
 import { formatBudget } from "@/components/layout/DesktopSidebar";
 import { cn } from "@/lib/utils";
 
@@ -361,9 +363,34 @@ export default function FacilitatorPage() {
   const navigate = useNavigate();
   const currentGameRoom = useGameStore((state) => state.currentGameRoom);
   const getLeaderboard = useGameStore((state) => state.getLeaderboard);
+  const refreshCurrentRoom = useGameStore((state) => state.refreshCurrentRoom);
+  const subscribeToRoom = useGameStore((state) => state.subscribeToRoom);
+  const realtimeStatus = useGameStore((state) => state.realtimeStatus);
 
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Fetch fresh room data from Supabase on mount
+  useEffect(() => {
+    if (!currentGameRoom) return;
+    let cancelled = false;
+    setIsRefreshing(true);
+    refreshCurrentRoom()
+      .catch((err: unknown) => {
+        if (!cancelled) console.warn("Failed to refresh room data:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsRefreshing(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentGameRoom?.id, refreshCurrentRoom]);
+
+  // Ensure real-time subscription is active on mount
+  useEffect(() => {
+    if (!currentGameRoom) return;
+    subscribeToRoom();
+  }, [currentGameRoom?.id, subscribeToRoom]);
 
   const players = currentGameRoom?.players ?? [];
   const leaderboard = getLeaderboard();
@@ -654,7 +681,44 @@ export default function FacilitatorPage() {
                   Levels {(campDay - 1) * 10 + 1}&ndash;{campDay * 10}
                 </span>
               </div>
+
+              {/* Sync / real-time status indicator */}
+              {isRefreshing && (
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  <span className="text-xs">Syncing...</span>
+                </div>
+              )}
+              {realtimeStatus === "connected" && (
+                <Badge variant="outline" className="gap-1.5 text-emerald-600 border-emerald-200">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Live
+                </Badge>
+              )}
+              {realtimeStatus === "reconnecting" && (
+                <Badge variant="outline" className="gap-1.5 text-amber-600 border-amber-200">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Reconnecting...
+                </Badge>
+              )}
+              {realtimeStatus === "disconnected" && !isRefreshing && (
+                <Badge variant="outline" className="gap-1.5 text-muted-foreground">
+                  <span className="h-2 w-2 rounded-full bg-gray-400" />
+                  Offline
+                </Badge>
+              )}
             </div>
+          </div>
+        )}
+
+        {/* Room Analytics Dashboard - only show when a room is active */}
+        {currentGameRoom && (
+          <div className="mb-6">
+            <RoomAnalytics
+              players={players}
+              campDay={campDay}
+              realtimeStatus={realtimeStatus}
+            />
           </div>
         )}
 
