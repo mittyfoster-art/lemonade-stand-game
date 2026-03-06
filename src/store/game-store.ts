@@ -1271,8 +1271,9 @@ export const useGameStore = create<GameState>()(
           currentScenario: get().getLevelScenario(1),
         }))
 
-        // Sync to backend (non-blocking)
+        // Sync to backend
         try {
+          const { user } = get()
           await table.addItem('game_rooms', {
             room_id: roomId,
             room_name: newRoom.name,
@@ -1280,9 +1281,11 @@ export const useGameStore = create<GameState>()(
             camp_start_date: campStartDate,
             created_at: newRoom.createdAt,
             last_updated: Date.now(),
+            created_by: user?.uid ?? 'anonymous',
           })
         } catch (error) {
-          console.warn('Backend sync failed for createGameRoom (local-only mode):', error)
+          console.error('[createGameRoom] Backend sync FAILED — room exists only locally. Players on other devices will NOT be able to join.', error)
+          set({ lastSyncError: 'Room was created locally but failed to save to the server. Players on other devices may not be able to join.' })
         }
 
         // Subscribe to real-time updates for the newly created room

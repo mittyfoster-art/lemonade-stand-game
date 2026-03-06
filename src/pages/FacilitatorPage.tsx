@@ -370,7 +370,7 @@ export default function FacilitatorPage() {
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Fetch fresh room data from Supabase on mount
+  // Fetch fresh room data from Supabase on mount (once)
   useEffect(() => {
     if (!currentGameRoom) return;
     let cancelled = false;
@@ -383,13 +383,15 @@ export default function FacilitatorPage() {
         if (!cancelled) setIsRefreshing(false);
       });
     return () => { cancelled = true; };
-  }, [currentGameRoom, refreshCurrentRoom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount, not on every room update
+  }, []);
 
-  // Ensure real-time subscription is active on mount
+  // Ensure real-time subscription is active on mount (once)
   useEffect(() => {
     if (!currentGameRoom) return;
     subscribeToRoom();
-  }, [currentGameRoom, subscribeToRoom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- subscribe once, not on every room update
+  }, []);
 
   const players = useMemo(() => currentGameRoom?.players ?? [], [currentGameRoom?.players]);
   const leaderboard = getLeaderboard();

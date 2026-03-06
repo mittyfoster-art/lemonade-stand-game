@@ -31,6 +31,36 @@ export function PlayerRoute({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * Route guard that allows access for either a player OR an authenticated
+ * facilitator. Used for pages like Awards and Leaderboard that both
+ * players and facilitators need to view.
+ */
+export function PlayerOrFacilitatorRoute({ children }: { children: React.ReactNode }) {
+  const currentPlayer = useGameStore((s) => s.currentPlayer)
+  const isAuthenticated = useGameStore((s) => s.isAuthenticated)
+  const hasToasted = useRef(false)
+
+  const hasAccess = currentPlayer || isAuthenticated
+
+  useEffect(() => {
+    if (!hasAccess && !hasToasted.current) {
+      hasToasted.current = true
+      toast({
+        title: 'Join a room first',
+        description: 'Enter your name and room code to start playing.',
+        variant: 'destructive',
+      })
+    }
+  }, [hasAccess])
+
+  if (!hasAccess) {
+    return <Navigate to="/" replace />
+  }
+
+  return <>{children}</>
+}
+
+/**
  * Route guard for the facilitator page. Requires a signed-in facilitator
  * (authenticated user) rather than a player.
  */

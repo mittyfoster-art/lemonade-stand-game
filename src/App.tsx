@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout";
-import { PlayerRoute, FacilitatorRoute } from "@/components/ProtectedRoute";
+import { PlayerRoute, PlayerOrFacilitatorRoute, FacilitatorRoute } from "@/components/ProtectedRoute";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NetworkStatus } from "@/components/NetworkStatus";
@@ -43,8 +43,8 @@ function App() {
               <Route path="/play" element={<PlayerRoute><PlayPage /></PlayerRoute>} />
               <Route path="/levels" element={<PlayerRoute><LevelsPage /></PlayerRoute>} />
               <Route path="/results" element={<PlayerRoute><ResultsPage /></PlayerRoute>} />
-              <Route path="/leaderboard" element={<PlayerRoute><LeaderboardPage /></PlayerRoute>} />
-              <Route path="/awards" element={<PlayerRoute><AwardsPage /></PlayerRoute>} />
+              <Route path="/leaderboard" element={<PlayerOrFacilitatorRoute><LeaderboardPage /></PlayerOrFacilitatorRoute>} />
+              <Route path="/awards" element={<PlayerOrFacilitatorRoute><AwardsPage /></PlayerOrFacilitatorRoute>} />
               <Route path="/profile" element={<PlayerRoute><ProfilePage /></PlayerRoute>} />
               <Route path="/loans" element={<PlayerRoute><LoansPage /></PlayerRoute>} />
               <Route path="/how-to-play" element={<HowToPlayPage />} />
