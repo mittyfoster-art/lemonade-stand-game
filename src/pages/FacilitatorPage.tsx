@@ -368,19 +368,13 @@ export default function FacilitatorPage() {
 
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
   // Fetch fresh room data from Supabase on mount (once)
   useEffect(() => {
     if (!currentGameRoom) return;
     let cancelled = false;
-    setIsRefreshing(true);
     refreshCurrentRoom()
       .catch((err: unknown) => {
         if (!cancelled) console.warn("Failed to refresh room data:", err);
-      })
-      .finally(() => {
-        if (!cancelled) setIsRefreshing(false);
       });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount, not on every room update
@@ -683,16 +677,10 @@ export default function FacilitatorPage() {
                 </span>
               </div>
 
-              {/* Sync / real-time status indicator */}
-              {isRefreshing && (
-                <div className="flex items-center gap-1.5 text-muted-foreground">
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                  <span className="text-xs">Syncing...</span>
-                </div>
-              )}
+              {/* Real-time status indicator */}
               {realtimeStatus === "connected" && (
                 <Badge variant="outline" className="gap-1.5 text-emerald-600 border-emerald-200">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
                   Live
                 </Badge>
               )}
@@ -702,7 +690,7 @@ export default function FacilitatorPage() {
                   Reconnecting...
                 </Badge>
               )}
-              {realtimeStatus === "disconnected" && !isRefreshing && (
+              {realtimeStatus === "disconnected" && (
                 <Badge variant="outline" className="gap-1.5 text-muted-foreground">
                   <span className="h-2 w-2 rounded-full bg-gray-400" />
                   Offline

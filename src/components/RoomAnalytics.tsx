@@ -438,14 +438,14 @@ export function RoomAnalytics({
           <div className="flex items-center gap-2">
             {realtimeStatus === "connected" && (
               <Badge variant="outline" className="gap-1.5 text-emerald-600 border-emerald-200">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
                 Live Data
               </Badge>
             )}
             {realtimeStatus === "reconnecting" && (
               <Badge variant="outline" className="gap-1.5 text-amber-600 border-amber-200">
-                <Activity className="h-3 w-3 animate-pulse" />
-                Syncing...
+                <Activity className="h-3 w-3 animate-spin" />
+                Reconnecting...
               </Badge>
             )}
             {realtimeStatus === "disconnected" && (
