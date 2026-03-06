@@ -164,7 +164,7 @@ export default function AwardsPage() {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Fetch fresh room data from Supabase on mount
+  // Fetch fresh room data from Supabase on mount (once)
   useEffect(() => {
     if (!currentGameRoom) return;
     let cancelled = false;
@@ -177,7 +177,8 @@ export default function AwardsPage() {
         if (!cancelled) setIsRefreshing(false);
       });
     return () => { cancelled = true; };
-  }, [currentGameRoom, refreshCurrentRoom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
+  }, []);
 
   // No room joined: prompt user
   if (!currentGameRoom) {

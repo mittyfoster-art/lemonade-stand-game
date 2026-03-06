@@ -296,8 +296,8 @@ export const table = {
     onStatus?: (status: string) => void,
   ) => {
     const channelName = roomId
-      ? `game_rooms_changes_${roomId}_${Date.now()}`
-      : `game_rooms_changes_${Date.now()}`
+      ? `game_rooms_changes_${roomId}`
+      : `game_rooms_changes_global`
 
     const filterConfig = roomId
       ? { event: '*' as const, schema: 'public', table: 'game_rooms', filter: `room_id=eq.${roomId}` }

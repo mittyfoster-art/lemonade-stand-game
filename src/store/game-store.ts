@@ -813,6 +813,12 @@ let pendingSyncOnReconnect = false
 /** Counter for consecutive reconnection attempts. Reset on successful connect. */
 let realtimeReconnectAttempt = 0
 
+/** Tracks which room ID we are currently subscribed to (prevents duplicate subscriptions). */
+let subscribedToRoomId: string | null = null
+
+/** Whether onRehydrateStorage has already run (prevents repeated calls). */
+let hasRehydrated = false
+
 // ============================================================================
 // Zustand Store
 // ============================================================================
@@ -1680,16 +1686,18 @@ export const useGameStore = create<GameState>()(
       // ====================================================================
 
       subscribeToRoom: () => {
-        const { currentGameRoom, _roomUnsubscribe, realtimeStatus } = get()
+        const { currentGameRoom, _roomUnsubscribe } = get()
         if (!currentGameRoom) return
 
-        // Skip if already connected — prevents teardown/reconnect flickering
-        // when multiple callers (onRehydrate, useEffect, etc.) invoke this.
-        if (_roomUnsubscribe && realtimeStatus === 'connected') return
+        // Skip if already subscribed to this exact room — prevents the
+        // teardown/reconnect flickering loop caused by multiple callers
+        // (onRehydrate, useEffect, joinGameRoom, createGameRoom, etc.).
+        if (subscribedToRoomId === currentGameRoom.id && _roomUnsubscribe) return
 
         // Tear down any existing subscription before creating a new one
         if (_roomUnsubscribe) {
           _roomUnsubscribe()
+          subscribedToRoomId = null
         }
 
         // Cancel any pending reconnect timer
@@ -1781,9 +1789,11 @@ export const useGameStore = create<GameState>()(
           }
         })
 
-        // Store the unsubscribe function
+        // Store the unsubscribe function and track which room we're subscribed to
+        subscribedToRoomId = roomId
         const unsubscribe = () => {
           channel.unsubscribe()
+          subscribedToRoomId = null
           if (realtimeReconnectTimeout) {
             clearTimeout(realtimeReconnectTimeout)
             realtimeReconnectTimeout = null
@@ -1989,9 +1999,12 @@ export const useGameStore = create<GameState>()(
         currentPlayer: state.currentPlayer,
       }),
       onRehydrateStorage: () => {
-        // Called after Zustand restores persisted state from localStorage.
-        // Validates rehydrated state and re-establishes subscriptions.
+        // Called once after Zustand restores persisted state from localStorage.
+        // Re-establishes the real-time subscription for the current room.
         return (state, error) => {
+          if (hasRehydrated) return
+          hasRehydrated = true
+
           if (error) {
             console.warn('[Lemonade Stand] Failed to rehydrate state, clearing localStorage:', error)
             localStorage.removeItem('lemonade-game-storage-v2')
