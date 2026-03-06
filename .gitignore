@@ -65,4 +65,3 @@ app_spec.txt
 prompts/
 .claude_assistant_settings.json
 .claude_settings.json
-.npmrc
