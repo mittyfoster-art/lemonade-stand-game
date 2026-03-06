@@ -1680,8 +1680,12 @@ export const useGameStore = create<GameState>()(
       // ====================================================================
 
       subscribeToRoom: () => {
-        const { currentGameRoom, _roomUnsubscribe } = get()
+        const { currentGameRoom, _roomUnsubscribe, realtimeStatus } = get()
         if (!currentGameRoom) return
+
+        // Skip if already connected — prevents teardown/reconnect flickering
+        // when multiple callers (onRehydrate, useEffect, etc.) invoke this.
+        if (_roomUnsubscribe && realtimeStatus === 'connected') return
 
         // Tear down any existing subscription before creating a new one
         if (_roomUnsubscribe) {

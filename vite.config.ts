@@ -79,6 +79,9 @@ export default defineConfig({
         lang: "en",
       },
       workbox: {
+        // Force new service worker to activate immediately (no waiting)
+        skipWaiting: true,
+        clientsClaim: true,
         // Cache strategies for different types of assets
         runtimeCaching: [
           {
