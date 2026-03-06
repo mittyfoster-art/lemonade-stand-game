@@ -82,8 +82,11 @@ export default defineConfig({
         // Cache strategies for different types of assets
         runtimeCaching: [
           {
-            // Cache the app shell (HTML, JS, CSS)
-            urlPattern: /^https?:\/\/localhost(:\d+)?\/.*/i,
+            // Cache the app shell (HTML, JS, CSS) — matches any origin
+            urlPattern: ({ request }: { request: Request }) =>
+              request.destination === 'document' ||
+              request.destination === 'script' ||
+              request.destination === 'style',
             handler: "NetworkFirst",
             options: {
               cacheName: "app-shell",
@@ -133,12 +136,26 @@ export default defineConfig({
     host: true,
     port: 4000,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split heavy vendor libraries into separate cacheable chunks
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-charts': ['recharts'],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-slot', '@radix-ui/react-tooltip', '@radix-ui/react-tabs', '@radix-ui/react-scroll-area'],
+          'vendor-sentry': ['@sentry/react'],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  // @ts-ignore - vitest config
+  // @ts-expect-error - vitest config
   test: {
     globals: true,
     environment: "jsdom",

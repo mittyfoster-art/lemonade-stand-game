@@ -32,6 +32,7 @@ import {
   formatBudget,
 } from "@/components/layout/DesktopSidebar";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SyncStatus } from "@/components/SyncStatus";
 import { CampCountdown } from "@/components/CampCountdown";
 
 export default function MobileHeader() {
@@ -74,8 +75,9 @@ export default function MobileHeader() {
           </span>
         </div>
 
-        {/* Budget badge + theme toggle */}
+        {/* Sync status + budget badge + theme toggle */}
         <div className="flex items-center gap-1.5">
+          <SyncStatus />
           <Badge
             variant="outline"
             className={cn(

@@ -469,7 +469,7 @@ export function computeDailyRecognition(players: Player[], day: number): AwardRe
 
   return [
     ...computeTop3Leaderboard(players, day),
-    computeBiggestDailyMover(players, day, start, end),
+    computeBiggestDailyMover(players, day),
     computeMostLevelsToday(players, day, start, end),
     computeBestLoanDecision(players, day),
   ]
@@ -517,8 +517,6 @@ function computeTop3Leaderboard(players: Player[], day: number): AwardResult[] {
 function computeBiggestDailyMover(
   players: Player[],
   day: number,
-  _start: number,
-  _end: number
 ): AwardResult {
   const id = `day-${day}-biggest-mover`
   const name = 'Biggest Daily Mover'

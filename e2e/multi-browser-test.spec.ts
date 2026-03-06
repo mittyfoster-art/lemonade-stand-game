@@ -1,4 +1,4 @@
-import { test, expect, chromium } from '@playwright/test'
+import { test, chromium } from '@playwright/test'
 
 test.describe('Multi-Browser Room Sharing Test', () => {
   test('should create room in one browser and join from another', async () => {

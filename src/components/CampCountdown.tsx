@@ -116,8 +116,14 @@ function getTimeUntilNextUnlock(
 // Component
 // ---------------------------------------------------------------------------
 
-export function CampCountdown() {
+interface CampCountdownProps {
+  /** When true, renders a wider card-style layout suitable for the homepage. */
+  variant?: 'sidebar' | 'card'
+}
+
+export function CampCountdown({ variant = 'sidebar' }: CampCountdownProps) {
   const currentGameRoom = useGameStore((s) => s.currentGameRoom);
+  const currentPlayer = useGameStore((s) => s.currentPlayer);
   const campStartDate = currentGameRoom?.campStartDate;
 
   // Update the countdown every 60 seconds
@@ -182,24 +188,38 @@ export function CampCountdown() {
   const levelEnd = campDay * LEVELS_PER_DAY;
   const timeUntilNext = getTimeUntilNextUnlock(campStartDate, campDay);
 
+  // Count how many of today's levels the player has completed
+  const completedToday = currentPlayer
+    ? currentPlayer.completedLevels.filter(
+        (l) => l >= levelStart && l <= levelEnd
+      ).length
+    : 0;
+
+  const isCard = variant === 'card';
+
   return (
-    <div className="px-3 py-3">
-      <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-2">
+    <div className={isCard ? "" : "px-3 py-3"}>
+      <div className={`rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 ${isCard ? "p-4 space-y-3" : "p-3 space-y-2"}`}>
         {/* Current day info */}
         <div className="flex items-center gap-1.5 text-amber-800 dark:text-amber-300">
-          <Calendar className="h-3.5 w-3.5" />
-          <span className="text-xs font-semibold">
+          <Calendar className={isCard ? "h-4 w-4" : "h-3.5 w-3.5"} />
+          <span className={`font-semibold ${isCard ? "text-sm" : "text-xs"}`}>
             Day {campDay}: {dayTheme}
           </span>
         </div>
 
-        <p className="text-xs text-amber-700 dark:text-amber-400">
-          Levels {levelStart}-{levelEnd} unlocked
-        </p>
+        <div className={`flex items-center justify-between ${isCard ? "text-sm" : "text-xs"} text-amber-700 dark:text-amber-400`}>
+          <span>Levels {levelStart}-{levelEnd} unlocked</span>
+          {currentPlayer && (
+            <span className="font-semibold">
+              {completedToday}/{LEVELS_PER_DAY} done
+            </span>
+          )}
+        </div>
 
         {/* Countdown to next unlock */}
         {timeUntilNext > 0 && campDay < 5 && (
-          <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+          <div className={`flex items-center gap-1.5 ${isCard ? "text-sm" : "text-xs"} text-amber-600 dark:text-amber-500`}>
             <Clock className="h-3 w-3" />
             <span>
               Day {campDay + 1} unlocks in{" "}

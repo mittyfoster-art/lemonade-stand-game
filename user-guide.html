@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lemonade Stand Game — Team Test Guide</title>
+<style>
+  /* ===== Reset & Base ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --clr-lemon:        #fde047;
+    --clr-lemon-light:  #fef9c3;
+    --clr-lemon-pale:   #fffef0;
+    --clr-amber:        #f59e0b;
+    --clr-amber-dark:   #b45309;
+    --clr-amber-deep:   #78350f;
+    --clr-green:        #16a34a;
+    --clr-red:          #dc2626;
+    --clr-text:         #1c1917;
+    --clr-text-muted:   #57534e;
+    --clr-border:       #e7e5e4;
+    --clr-card-bg:      #ffffff;
+    --clr-page-bg:      #fffbeb;
+    --radius:           12px;
+    --shadow-sm:        0 1px 3px rgba(0,0,0,.08);
+    --shadow-md:        0 4px 12px rgba(0,0,0,.10);
+    --transition:       .25s ease;
+  }
+
+  html { scroll-behavior: smooth; font-size: 16px; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    background: var(--clr-page-bg);
+    color: var(--clr-text);
+    line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* ===== Layout ===== */
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 16px 80px;
+  }
+
+  /* ===== Hero Header ===== */
+  .hero {
+    background: linear-gradient(135deg, var(--clr-amber) 0%, var(--clr-lemon) 100%);
+    padding: 40px 20px 32px;
+    text-align: center;
+    border-radius: 0 0 32px 32px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-md);
+  }
+  .hero-emoji { font-size: 56px; display: block; margin-bottom: 8px; }
+  .hero h1 {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--clr-amber-deep);
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+  }
+  .hero .subtitle {
+    font-size: .95rem;
+    color: var(--clr-amber-dark);
+    margin-top: 6px;
+    font-weight: 500;
+  }
+
+  /* ===== Quick Start Card ===== */
+  .quick-start {
+    background: var(--clr-card-bg);
+    border: 2px solid var(--clr-lemon);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 28px;
+    box-shadow: var(--shadow-sm);
+  }
+  .quick-start-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--clr-amber-dark);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .quick-start ol {
+    padding-left: 20px;
+    margin: 0;
+  }
+  .quick-start li {
+    margin-bottom: 8px;
+    font-size: .93rem;
+  }
+  .quick-start li:last-child { margin-bottom: 0; }
+  .quick-start code {
+    background: var(--clr-lemon-light);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: .88rem;
+    font-weight: 600;
+    color: var(--clr-amber-deep);
+    word-break: break-all;
+  }
+
+  /* ===== URL Banner ===== */
+  .url-banner {
+    display: block;
+    text-align: center;
+    background: var(--clr-amber-deep);
+    color: #fff;
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    margin-bottom: 28px;
+    text-decoration: none;
+    box-shadow: var(--shadow-md);
+    transition: background var(--transition);
+  }
+  .url-banner:hover, .url-banner:active {
+    background: #5c2d0e;
+  }
+  .url-banner .label {
+    display: block;
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    opacity: .85;
+    margin-bottom: 2px;
+  }
+  .url-banner .url {
+    display: block;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-family: "SF Mono", "Fira Code", "Courier New", monospace;
+    word-break: break-all;
+  }
+
+  /* ===== Accordion Sections ===== */
+  .accordion { margin-bottom: 12px; }
+
+  .accordion-toggle {
+    display: none;
+  }
+
+  .accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    background: var(--clr-card-bg);
+    border: 1px solid var(--clr-border);
+    border-radius: var(--radius);
+    padding: 16px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background var(--transition), border-color var(--transition),
+                border-radius var(--transition);
+    box-shadow: var(--shadow-sm);
+  }
+  .accordion-header:hover {
+    background: var(--clr-lemon-light);
+    border-color: var(--clr-lemon);
+  }
+  .accordion-header:active {
+    background: var(--clr-lemon);
+  }
+
+  .section-number {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    background: var(--clr-lemon);
+    color: var(--clr-amber-deep);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: .85rem;
+  }
+
+  .accordion-title {
+    flex: 1;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--clr-text);
+    text-align: left;
+  }
+
+  .accordion-chevron {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    transition: transform var(--transition);
+  }
+  .accordion-chevron svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: var(--clr-text-muted);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .accordion-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height .35s ease, padding .35s ease;
+    background: var(--clr-card-bg);
+    border: 1px solid var(--clr-border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    padding: 0 16px;
+  }
+  .accordion-body-inner {
+    padding: 16px 0;
+  }
+
+  /* Expanded state */
+  .accordion-toggle:checked ~ .accordion-header {
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: var(--clr-lemon-light);
+    border-color: var(--clr-lemon);
+  }
+  .accordion-toggle:checked ~ .accordion-header .accordion-chevron {
+    transform: rotate(180deg);
+  }
+  .accordion-toggle:checked ~ .accordion-body {
+    max-height: 2000px;
+    padding: 0 16px;
+    border-color: var(--clr-lemon);
+  }
+
+  /* ===== Content Styles ===== */
+  .accordion-body p {
+    margin-bottom: 12px;
+    font-size: .93rem;
+    color: var(--clr-text);
+  }
+  .accordion-body p:last-child { margin-bottom: 0; }
+
+  .accordion-body ul, .accordion-body ol {
+    padding-left: 20px;
+    margin-bottom: 12px;
+  }
+  .accordion-body li {
+    margin-bottom: 6px;
+    font-size: .93rem;
+  }
+  .accordion-body li:last-child { margin-bottom: 0; }
+
+  .accordion-body strong { color: var(--clr-amber-deep); }
+
+  .accordion-body code {
+    background: var(--clr-lemon-light);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: .87rem;
+    font-weight: 600;
+    color: var(--clr-amber-deep);
+  }
+
+  .info-box {
+    background: var(--clr-lemon-pale);
+    border-left: 4px solid var(--clr-amber);
+    border-radius: 0 8px 8px 0;
+    padding: 12px 14px;
+    margin: 12px 0;
+    font-size: .9rem;
+  }
+
+  .nav-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .nav-item {
+    background: var(--clr-lemon-pale);
+    border: 1px solid var(--clr-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: .85rem;
+  }
+  .nav-item-name {
+    font-weight: 700;
+    color: var(--clr-amber-deep);
+    display: block;
+    margin-bottom: 2px;
+  }
+  .nav-item-desc {
+    color: var(--clr-text-muted);
+    font-size: .82rem;
+    line-height: 1.4;
+  }
+
+  .budget-indicators {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0;
+    flex-wrap: wrap;
+  }
+  .budget-chip {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: .82rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .budget-chip.green  { background: var(--clr-green); }
+  .budget-chip.amber  { background: var(--clr-amber); }
+  .budget-chip.red    { background: var(--clr-red);   }
+
+  .decision-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .decision-card {
+    background: var(--clr-lemon-pale);
+    border: 1px solid var(--clr-border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .decision-card-label {
+    font-weight: 700;
+    color: var(--clr-amber-deep);
+    font-size: .9rem;
+  }
+  .decision-card-range {
+    color: var(--clr-text-muted);
+    font-size: .84rem;
+  }
+  .decision-card-desc {
+    font-size: .85rem;
+    margin-top: 4px;
+    color: var(--clr-text);
+  }
+
+  /* Facilitator callout */
+  .facilitator-box {
+    background: #fef3c7;
+    border: 2px dashed var(--clr-amber);
+    border-radius: 8px;
+    padding: 14px;
+    margin: 14px 0 4px;
+  }
+  .facilitator-box-title {
+    font-weight: 700;
+    font-size: .9rem;
+    color: var(--clr-amber-dark);
+    margin-bottom: 6px;
+  }
+  .facilitator-box ol {
+    padding-left: 18px;
+    margin: 0;
+  }
+  .facilitator-box li {
+    font-size: .88rem;
+    margin-bottom: 4px;
+  }
+
+  /* Tips list */
+  .tips-list { list-style: none; padding-left: 0; }
+  .tips-list li {
+    position: relative;
+    padding-left: 28px;
+    margin-bottom: 10px;
+  }
+  .tips-list li::before {
+    content: "\2714";
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--clr-green);
+    font-weight: 700;
+    font-size: .95rem;
+  }
+
+  .quirks-list { list-style: none; padding-left: 0; }
+  .quirks-list li {
+    position: relative;
+    padding-left: 28px;
+    margin-bottom: 10px;
+  }
+  .quirks-list li::before {
+    content: "\26A0";
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-size: .95rem;
+  }
+
+  /* ===== Footer ===== */
+  .footer {
+    text-align: center;
+    padding: 32px 16px 16px;
+    font-size: .8rem;
+    color: var(--clr-text-muted);
+  }
+
+  /* ===== Responsive ===== */
+  @media (min-width: 600px) {
+    .container { padding: 0 24px 80px; }
+    .hero { padding: 48px 32px 36px; }
+    .hero h1 { font-size: 1.9rem; }
+    .hero-emoji { font-size: 64px; }
+    .accordion-header { padding: 18px 20px; }
+    .accordion-body { padding: 0 20px; }
+    .accordion-body-inner { padding: 20px 0; }
+    .quick-start { padding: 24px; }
+  }
+
+  /* Focus-visible for keyboard nav */
+  .accordion-header:focus-visible {
+    outline: 3px solid var(--clr-amber);
+    outline-offset: 2px;
+  }
+
+  /* Print styles */
+  @media print {
+    .hero { border-radius: 0; box-shadow: none; }
+    .accordion-body { max-height: none !important; padding: 0 16px !important; }
+    .accordion-chevron { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== Hero ===== -->
+<header class="hero">
+  <span class="hero-emoji" role="img" aria-label="Lemon">&#x1F34B;</span>
+  <h1>Lemonade Stand<br>Business Simulation</h1>
+  <p class="subtitle">Team Test Guide</p>
+</header>
+
+<main class="container">
+
+  <!-- ===== URL Banner ===== -->
+  <a href="http://192.168.33.247:4000/" class="url-banner">
+    <span class="label">Open this link in your browser</span>
+    <span class="url">http://192.168.33.247:4000/</span>
+  </a>
+
+  <!-- ===== Quick Start ===== -->
+  <div class="quick-start">
+    <div class="quick-start-title">
+      <span role="img" aria-label="Lightning">&#x26A1;</span> Quick Start
+    </div>
+    <ol>
+      <li>Connect to the <strong>same WiFi network</strong> as the host computer.</li>
+      <li>Open your browser and go to <code>http://192.168.33.247:4000/</code></li>
+      <li>Enter your <strong>name</strong> and the <strong>room code</strong> (the facilitator will share it).</li>
+      <li>Tap <strong>"Join Game"</strong> and start playing!</li>
+    </ol>
+  </div>
+
+  <!-- ===== Section 1: Getting Connected ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s1" class="accordion-toggle">
+    <label for="s1" class="accordion-header">
+      <span class="section-number">1</span>
+      <span class="accordion-title">Getting Connected</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>The game runs as a web app on a local network. There is nothing to install or download.</p>
+      <ul>
+        <li>Make sure your device (phone, tablet, or laptop) is connected to the <strong>same WiFi network</strong> as the host computer running the game server.</li>
+        <li>Open any modern browser: <strong>Chrome</strong>, <strong>Safari</strong>, or <strong>Firefox</strong> all work great.</li>
+        <li>Navigate to <code>http://192.168.33.247:4000/</code> and the game will load immediately.</li>
+      </ul>
+      <div class="info-box">
+        <strong>Tip:</strong> If the page does not load, double-check your WiFi connection. The game will not work over mobile data since it runs on the local network.
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ===== Section 2: Joining a Game Room ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s2" class="accordion-toggle">
+    <label for="s2" class="accordion-header">
+      <span class="section-number">2</span>
+      <span class="accordion-title">Joining a Game Room</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>When the game loads, you will see the home page with a <strong>"Join Game"</strong> form.</p>
+      <ol>
+        <li>Enter your <strong>name</strong> (this is what appears on the leaderboard).</li>
+        <li>Enter the <strong>room code</strong> provided by the facilitator.</li>
+        <li>Tap <strong>"Join Game"</strong> to enter the room.</li>
+      </ol>
+
+      <div class="facilitator-box">
+        <div class="facilitator-box-title">&#x1F34B; Facilitator: Creating a Room</div>
+        <ol>
+          <li>On the home page, tap <strong>"Sign in to create a room"</strong> at the bottom.</li>
+          <li>Enter any email address, then use the verification code <code>123456</code>.</li>
+          <li>Create a new room. The date is pre-set so <strong>all 50 levels are unlocked</strong>.</li>
+          <li>Share the displayed room code with all players.</li>
+        </ol>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ===== Section 3: How to Play ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s3" class="accordion-toggle">
+    <label for="s3" class="accordion-header">
+      <span class="section-number">3</span>
+      <span class="accordion-title">How to Play</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>Tap <strong>"Play Level"</strong> in the navigation (sidebar on desktop, bottom bar on mobile) to start playing.</p>
+      <p>Each level presents a unique business scenario set in the <strong>Cayman Islands</strong>. Read the story and hint carefully, as they contain clues about what strategies will be most profitable.</p>
+
+      <p><strong>You make 3 decisions each level:</strong></p>
+      <div class="decision-cards">
+        <div class="decision-card">
+          <span class="decision-card-label">Price</span>
+          <span class="decision-card-range"> &mdash; $0.25 to $2.00 per cup</span>
+          <p class="decision-card-desc">How much you charge customers. Higher prices mean more revenue per sale but may reduce demand.</p>
+        </div>
+        <div class="decision-card">
+          <span class="decision-card-label">Quality</span>
+          <span class="decision-card-range"> &mdash; 1 to 5 stars</span>
+          <p class="decision-card-desc">Better ingredients attract more customers but increase your cost per cup.</p>
+        </div>
+        <div class="decision-card">
+          <span class="decision-card-label">Marketing</span>
+          <span class="decision-card-range"> &mdash; $0 to $30</span>
+          <p class="decision-card-desc">Advertising spend. More marketing brings awareness, but the cost comes out of your budget.</p>
+        </div>
+      </div>
+
+      <p>Once you have set your decisions, tap <strong>"Open for Business!"</strong> to see your results. Then tap <strong>"Next Level"</strong> to continue.</p>
+    </div></div>
+  </div>
+
+  <!-- ===== Section 4: Understanding Your Budget ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s4" class="accordion-toggle">
+    <label for="s4" class="accordion-header">
+      <span class="section-number">4</span>
+      <span class="accordion-title">Understanding Your Budget</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>Every player begins with a <strong>$500 budget</strong>. Your goal is to grow it by making smart business decisions.</p>
+      <ul>
+        <li><strong>Fixed costs:</strong> Each level deducts $20 for stand setup and permits.</li>
+        <li><strong>Profit formula:</strong> Revenue from sales minus all costs (fixed + marketing + ingredients).</li>
+        <li><strong>Game Over:</strong> If your budget falls below $20, you can no longer afford to open your stand.</li>
+      </ul>
+
+      <p>Keep an eye on the budget indicator color:</p>
+      <div class="budget-indicators">
+        <span class="budget-chip green">$100+ Healthy</span>
+        <span class="budget-chip amber">$50 - $99 Caution</span>
+        <span class="budget-chip red">Under $50 Danger</span>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ===== Section 5: Loan System ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s5" class="accordion-toggle">
+    <label for="s5" class="accordion-header">
+      <span class="section-number">5</span>
+      <span class="accordion-title">Loan System</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>At certain milestone levels, you will receive a <strong>loan offer</strong>. This adds a real-world financial literacy element to the game.</p>
+      <ul>
+        <li><strong>Loan offer levels:</strong> 15, 20, 25, 30, 35, and 40.</li>
+        <li>You can <strong>Accept</strong> or <strong>Decline</strong> each offer.</li>
+        <li>If you accept, cash is deposited into your budget immediately.</li>
+        <li>You then repay a <strong>fixed amount each level</strong> until the loan is paid off.</li>
+        <li>You can only carry <strong>one active loan at a time</strong>.</li>
+      </ul>
+      <div class="info-box">
+        <strong>Strategy:</strong> A well-timed loan can rescue a struggling business or give a thriving one the capital to invest in high-quality levels. Think carefully about whether the repayment schedule fits your plan.
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ===== Section 6: Navigation Guide ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s6" class="accordion-toggle">
+    <label for="s6" class="accordion-header">
+      <span class="section-number">6</span>
+      <span class="accordion-title">Navigation Guide</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>The app has a sidebar (desktop) or bottom navigation bar (mobile). Here is what each section does:</p>
+      <div class="nav-grid">
+        <div class="nav-item">
+          <span class="nav-item-name">Home</span>
+          <span class="nav-item-desc">Dashboard with your stats and quick actions</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-name">Play Level</span>
+          <span class="nav-item-desc">Main gameplay screen where you make decisions</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-name">Level Map</span>
+          <span class="nav-item-desc">See all 50 levels and your progress</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-name">Leaderboard</span>
+          <span class="nav-item-desc">Rankings against other players</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-name">Awards</span>
+          <span class="nav-item-desc">7 final awards and daily recognition</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-name">My Profile</span>
+          <span class="nav-item-desc">Detailed stats, charts, loan history</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-name">Loans</span>
+          <span class="nav-item-desc">Active loan details and upcoming offers</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-item-name">How to Play</span>
+          <span class="nav-item-desc">In-game reference guide</span>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- ===== Section 7: Tips for Testing ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s7" class="accordion-toggle">
+    <label for="s7" class="accordion-header">
+      <span class="section-number">7</span>
+      <span class="accordion-title">Tips for Testing</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>This is a test session, so we want to exercise as many features as possible. Here is what to focus on:</p>
+      <ul class="tips-list">
+        <li><strong>Try different strategies</strong> &mdash; compare aggressive pricing versus conservative approaches to see how the simulation responds.</li>
+        <li><strong>Accept at least one loan</strong> to test the loan system end-to-end, including repayments.</li>
+        <li><strong>Play through at least 5 to 10 levels</strong> so you get meaningful results and can see trends on the profile charts.</li>
+        <li><strong>Check the leaderboard</strong> to confirm other players' scores appear correctly.</li>
+        <li><strong>Test both orientations</strong> &mdash; try portrait and landscape on your phone to catch any layout issues.</li>
+        <li><strong>Report bugs or confusion</strong> to the facilitator. Anything that feels odd or unclear is valuable feedback.</li>
+      </ul>
+    </div></div>
+  </div>
+
+  <!-- ===== Section 8: Known Quirks ===== -->
+  <div class="accordion">
+    <input type="checkbox" id="s8" class="accordion-toggle">
+    <label for="s8" class="accordion-header">
+      <span class="section-number">8</span>
+      <span class="accordion-title">Known Quirks for This Test</span>
+      <span class="accordion-chevron"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+    </label>
+    <div class="accordion-body"><div class="accordion-body-inner">
+      <p>A few things to be aware of during this local test session:</p>
+      <ul class="quirks-list">
+        <li>The <strong>leaderboard</strong> only shows players from your device since we are testing on a local network.</li>
+        <li>If the page feels <strong>stuck or unresponsive</strong>, try refreshing your browser. The game state is saved, so you will not lose progress.</li>
+        <li>The <strong>Awards page</strong> needs multiple players with completed levels before it fully populates. It may look empty at first.</li>
+      </ul>
+      <div class="info-box">
+        <strong>Remember:</strong> This is an internal test. Do not worry about "breaking" anything. The more edge cases you find, the better the final product will be.
+      </div>
+    </div></div>
+  </div>
+
+</main>
+
+<!-- ===== Footer ===== -->
+<footer class="footer">
+  <p>&#x1F34B; Lemonade Stand Business Simulation &mdash; Team Test Guide</p>
+  <p>Built for internal QA. Not for distribution.</p>
+</footer>
+
+</body>
+</html>

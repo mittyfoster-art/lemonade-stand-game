@@ -133,9 +133,14 @@ export default function PlayPage() {
     currentPlayer?.activeLoan != null &&
     currentPlayer.activeLoan.acceptedAtLevel === currentPlayer.currentLevel;
 
-  // Guard: nothing to render until player data is available
+  // Guard: show loading state until player data and scenario are available
   if (!currentPlayer || !scenario) {
-    return null;
+    return (
+      <LoadingSpinner
+        message="Preparing your stand..."
+        submessage="Loading scenario data"
+      />
+    );
   }
 
   // =========================================================================

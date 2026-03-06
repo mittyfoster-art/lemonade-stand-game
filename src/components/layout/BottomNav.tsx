@@ -14,16 +14,17 @@ import { cn } from "@/lib/utils";
 
 interface BottomTab {
   label: string;
+  ariaLabel: string;
   to: string;
   icon: React.ComponentType<{ className?: string }>;
 }
 
 const BOTTOM_TABS: BottomTab[] = [
-  { label: "Home", to: "/", icon: Home },
-  { label: "Play", to: "/play", icon: Play },
-  { label: "Levels", to: "/levels", icon: Map },
-  { label: "Board", to: "/leaderboard", icon: Trophy },
-  { label: "Profile", to: "/profile", icon: User },
+  { label: "Home", ariaLabel: "Home page", to: "/", icon: Home },
+  { label: "Play", ariaLabel: "Play current level", to: "/play", icon: Play },
+  { label: "Levels", ariaLabel: "Level map", to: "/levels", icon: Map },
+  { label: "Board", ariaLabel: "Leaderboard", to: "/leaderboard", icon: Trophy },
+  { label: "Profile", ariaLabel: "Player profile", to: "/profile", icon: User },
 ];
 
 export default function BottomNav() {
@@ -38,6 +39,7 @@ export default function BottomNav() {
             key={tab.to}
             to={tab.to}
             end={tab.to === "/"}
+            aria-label={tab.ariaLabel}
             className={({ isActive }) =>
               cn(
                 "flex flex-col items-center justify-center gap-0.5 flex-1 h-full rounded-lg transition-colors",

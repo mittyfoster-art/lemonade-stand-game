@@ -32,7 +32,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
         title: "Verification code sent!",
         description: `Check your email at ${email}`,
       })
-    } catch (error) {
+    } catch {
       toast({
         title: "Failed to send code",
         description: "Please check your email and try again.",
@@ -57,7 +57,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
       setStep('email')
       setEmail('')
       setOtp('')
-    } catch (error) {
+    } catch {
       toast({
         title: "Invalid code",
         description: "Please check your verification code and try again.",
@@ -147,8 +147,9 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                   placeholder="123456"
                   disabled={isAuthenticating}
                   autoFocus
+                  aria-describedby="otp-hint"
                 />
-                <p className="text-sm text-muted-foreground">
+                <p id="otp-hint" className="text-sm text-muted-foreground">
                   Code sent to {email}
                 </p>
               </div>

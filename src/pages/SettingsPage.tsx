@@ -52,7 +52,7 @@ import { useGameStore } from "@/store/game-store";
 export default function SettingsPage() {
   const { toast } = useToast();
   const currentPlayer = useGameStore((s) => s.currentPlayer);
-  const clearGameState = useGameStore((s) => s.clearGameState);
+  const clearGameState = useGameStore((s) => s.resetGame);
 
   // Theme state (syncs with ThemeToggle component)
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -314,7 +314,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Room Code</p>
-                <p className="font-medium">{currentPlayer.roomCode}</p>
+                <p className="font-medium">{currentPlayer.roomId}</p>
               </div>
               <div>
                 <p className="text-muted-foreground">Current Level</p>

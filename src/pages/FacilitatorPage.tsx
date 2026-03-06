@@ -16,7 +16,6 @@ import {
   Target,
   DollarSign,
   BarChart3,
-  CreditCard,
   RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,7 +35,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { useGameStore, type Player, type LevelResult } from "@/store/game-store";
+import { useGameStore, type Player } from "@/store/game-store";
 import { GameRoomManager } from "@/components/GameRoomManager";
 import { RoomAnalytics } from "@/components/RoomAnalytics";
 import { formatBudget } from "@/components/layout/DesktopSidebar";
@@ -384,15 +383,15 @@ export default function FacilitatorPage() {
         if (!cancelled) setIsRefreshing(false);
       });
     return () => { cancelled = true; };
-  }, [currentGameRoom?.id, refreshCurrentRoom]);
+  }, [currentGameRoom, refreshCurrentRoom]);
 
   // Ensure real-time subscription is active on mount
   useEffect(() => {
     if (!currentGameRoom) return;
     subscribeToRoom();
-  }, [currentGameRoom?.id, subscribeToRoom]);
+  }, [currentGameRoom, subscribeToRoom]);
 
-  const players = currentGameRoom?.players ?? [];
+  const players = useMemo(() => currentGameRoom?.players ?? [], [currentGameRoom?.players]);
   const leaderboard = getLeaderboard();
 
   // Derive camp day from room start date

@@ -54,13 +54,14 @@ function createTestPlayer(overrides: Partial<Player> = {}): Player {
 
 /** Create a test game room */
 function createTestRoom(overrides: Partial<GameRoom> = {}): GameRoom {
+  // Use a past camp start date so all 50 levels are unlocked during tests
   return {
     id: 'TestRoom1234',
     name: 'Test Room',
     players: [],
     createdAt: Date.now(),
     isActive: true,
-    campStartDate: '2026-07-13',
+    campStartDate: '2020-01-01',
     ...overrides,
   }
 }
@@ -403,7 +404,6 @@ describe('game over condition', () => {
     expect(useGameStore.getState().currentPlayer!.isGameOver).toBe(true)
 
     // Try to simulate again - should not change state
-    const resultBefore = useGameStore.getState().lastSimulationResult
     useGameStore.getState().runSimulation()
     vi.advanceTimersByTime(1500)
 

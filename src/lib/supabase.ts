@@ -1,21 +1,38 @@
 // ============================================================================
 // Supabase Client Configuration
 // Real-time backend for the Lemonade Stand Game
+//
+// SECURITY: Row-Level Security (RLS) policies must be applied before
+// production deployment. See src/lib/supabase-migrations.sql for the
+// migration script that replaces the default permissive policies.
 // ============================================================================
 
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = 'https://luleklwxqvmvafeubksf.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1bGVrbHd4cXZtdmFmZXVia3NmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MDEwMDcsImV4cCI6MjA4NjQ3NzAwN30.SES0RSyoKz-u_tOvlIQxDwv2jxsU27fxFAZLZnmI7To'
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    'Missing Supabase credentials. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file. See .env.example for reference.'
+  )
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 /**
  * Whether to use mock authentication (no real Supabase Auth calls).
  * Defaults to false (real auth). Set VITE_AUTH_MOCK=true in .env
- * to enable mock mode for local development.
+ * to enable mock mode for local development only.
  */
 const AUTH_MOCK = import.meta.env.VITE_AUTH_MOCK === 'true'
+
+if (AUTH_MOCK) {
+  console.warn('[Lemonade Stand] Auth mock mode is ACTIVE. Set VITE_AUTH_MOCK=false for production.')
+}
+
+/** Whether the app is running in mock mode (exported for skip-network checks). */
+export const isAuthMock = AUTH_MOCK
 
 // ---------------------------------------------------------------------------
 // Types
@@ -169,7 +186,8 @@ export const table = {
   /**
    * Add a new game room
    */
-  addItem: async (tableName: string, data: Record<string, any>): Promise<Record<string, any>> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase returns untyped rows
+  addItem: async (tableName: string, data: Record<string, unknown>): Promise<Record<string, any>> => {
     const { data: result, error } = await supabase
       .from('game_rooms')
       .insert({
@@ -192,7 +210,8 @@ export const table = {
   /**
    * Get items with optional query
    */
-  getItems: async (tableName: string, options?: { query?: Record<string, any>; limit?: number; sort?: string; order?: string }): Promise<{ items: Record<string, any>[] }> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase returns untyped rows
+  getItems: async (tableName: string, options?: { query?: Record<string, unknown>; limit?: number; sort?: string; order?: string }): Promise<{ items: Record<string, any>[] }> => {
     let query = supabase.from('game_rooms').select('*')
 
     // Apply filters
@@ -221,8 +240,12 @@ export const table = {
   /**
    * Update a game room
    */
-  updateItem: async (tableName: string, data: Record<string, any>): Promise<Record<string, any> | null> => {
-    const { _id, _uid, ...updateData } = data
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase returns untyped rows
+  updateItem: async (tableName: string, data: Record<string, unknown>): Promise<Record<string, any> | null> => {
+    // Remove _id and _uid before sending to Supabase
+    const updateData = Object.fromEntries(
+      Object.entries(data).filter(([key]) => key !== '_id' && key !== '_uid')
+    )
 
     // Find the room by room_id or id
     const roomId = data.room_id || data.id
@@ -261,8 +284,17 @@ export const table = {
    * Uses a unique channel name per room (with timestamp) to avoid
    * subscription collisions when switching rooms, and a server-side
    * filter so only changes for the target room are delivered.
+   *
+   * @param onStatus - Optional callback invoked with the channel status
+   *   ('SUBSCRIBED', 'TIMED_OUT', 'CHANNEL_ERROR', 'CLOSED')
    */
-  subscribe: (tableName: string, callback: (payload: any) => void, roomId?: string) => {
+  subscribe: (
+    tableName: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase realtime payload type
+    callback: (payload: any) => void,
+    roomId?: string,
+    onStatus?: (status: string) => void,
+  ) => {
     const channelName = roomId
       ? `game_rooms_changes_${roomId}_${Date.now()}`
       : `game_rooms_changes_${Date.now()}`
@@ -274,6 +306,8 @@ export const table = {
     return supabase
       .channel(channelName)
       .on('postgres_changes', filterConfig, callback)
-      .subscribe()
+      .subscribe((status) => {
+        if (onStatus) onStatus(status)
+      })
   }
 }

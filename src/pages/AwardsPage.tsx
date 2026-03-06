@@ -15,8 +15,9 @@
  * Route: /awards
  */
 
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Award, Trophy, Users } from "lucide-react";
+import { Award, Trophy, Users, RefreshCw } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -158,7 +159,25 @@ function AwardGrid({ awards }: { awards: AwardResult[] }) {
 
 export default function AwardsPage() {
   const currentGameRoom = useGameStore((s) => s.currentGameRoom);
+  const refreshCurrentRoom = useGameStore((s) => s.refreshCurrentRoom);
   const players = currentGameRoom?.players ?? [];
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Fetch fresh room data from Supabase on mount
+  useEffect(() => {
+    if (!currentGameRoom) return;
+    let cancelled = false;
+    setIsRefreshing(true);
+    refreshCurrentRoom()
+      .catch((err: unknown) => {
+        if (!cancelled) console.warn("Failed to refresh room data:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsRefreshing(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentGameRoom, refreshCurrentRoom]);
 
   // No room joined: prompt user
   if (!currentGameRoom) {
@@ -222,6 +241,12 @@ export default function AwardsPage() {
           <Trophy className="h-4 w-4" />
           {claimedFinalAwards} of {finalAwards.length} awards claimed
         </Badge>
+        {isRefreshing && (
+          <Badge variant="outline" className="gap-1.5 text-sm px-3 py-1 text-muted-foreground animate-pulse">
+            <RefreshCw className="h-4 w-4 animate-spin" />
+            Syncing...
+          </Badge>
+        )}
       </div>
 
       {/* Empty state: no players */}

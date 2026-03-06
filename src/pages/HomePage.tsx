@@ -18,6 +18,7 @@ import { useGameStore } from "@/store/game-store";
 import { GameRoomManager } from "@/components/GameRoomManager";
 import { formatBudget, getBudgetColorClass } from "@/components/layout/DesktopSidebar";
 import BudgetWarningBanner from "@/components/BudgetWarningBanner";
+import { CampCountdown } from "@/components/CampCountdown";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -122,6 +123,9 @@ function HomePage() {
           Here is your business at a glance.
         </p>
       </div>
+
+      {/* Camp day countdown */}
+      <CampCountdown variant="card" />
 
       {/* Budget warning banner (shown when budget is low) */}
       <BudgetWarningBanner />

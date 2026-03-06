@@ -45,3 +45,24 @@ autonomous-coder/ui/__pycache__/
 # Misc
 .eslintcache
 *.tsbuildinfo
+.vercel
+
+# Regression test screenshots
+regression-*.png
+*.png
+!public/**/*.png
+
+# Dev tooling artifacts
+dev-dist/
+.devv/
+.playwright-mcp/
+playwright-report/
+test-results/
+features.db
+assistant.db
+_screenshot.mjs
+app_spec.txt
+prompts/
+.claude_assistant_settings.json
+.claude_settings.json
+.npmrc

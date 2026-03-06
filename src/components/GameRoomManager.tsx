@@ -113,7 +113,7 @@ export const GameRoomManager: React.FC = () => {
         title: 'Game room created!',
         description: `Room code: ${newRoomId} -- share this with your players.`,
       })
-    } catch (error) {
+    } catch {
       toast({
         title: 'Failed to create room',
         description: 'Please try again.',

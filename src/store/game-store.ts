@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { auth, table } from '@/lib/supabase'
+import { auth, table, supabase } from '@/lib/supabase'
 import { LEVEL_SCENARIOS } from '@/data/scenarios'
+import { validateDecision } from '@/lib/validation'
 
 // ============================================================================
 // Constants
@@ -25,6 +26,9 @@ const LEVELS_PER_DAY = 10
 /** Hour of the day (24-hour format) when new levels unlock */
 const UNLOCK_HOUR = 7
 
+/** IANA timezone for the camp location (Cayman Islands, UTC-5, no DST) */
+const CAMP_TIMEZONE = 'America/Cayman'
+
 /** Maximum cups that can be sold in a single level (capacity cap) */
 const MAX_CAPACITY = 150
 
@@ -36,6 +40,30 @@ const BASE_INGREDIENT_COST = 0.10
 
 /** Quality multipliers: index 0 = quality 1 (Basic), index 4 = quality 5 (Gourmet) */
 const QUALITY_MULTIPLIERS: readonly number[] = [1.0, 1.2, 1.5, 2.0, 2.8] as const
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/** Safely parse a JSON string of players, returning an empty array on failure. */
+function safeParsePlayersJson(raw: string | null | undefined, context: string): Player[] {
+  try {
+    return JSON.parse(raw || '[]') as Player[]
+  } catch (error) {
+    console.error(`[Lemonade] Failed to parse players JSON (${context}):`, error)
+    return []
+  }
+}
+
+/** Suggest an alternative player name by appending an incrementing number. */
+function suggestAlternativeName(baseName: string, existingPlayers: Player[]): string {
+  const takenNames = new Set(existingPlayers.map(p => p.name.toLowerCase()))
+  for (let i = 2; i <= 99; i++) {
+    const candidate = `${baseName}${i}`
+    if (!takenNames.has(candidate.toLowerCase())) return candidate
+  }
+  return `${baseName}${Math.floor(Math.random() * 900 + 100)}`
+}
 
 // ============================================================================
 // Interfaces
@@ -298,10 +326,18 @@ export interface GameState {
   // -- Real-time subscription state --
   /** Unsubscribe function for the active room subscription, or null if not subscribed */
   _roomUnsubscribe: (() => void) | null
+  /** Current real-time connection status */
+  realtimeStatus: 'disconnected' | 'connected' | 'reconnecting'
 
   // -- Room join error state --
   /** Error message displayed when joining a room fails */
   roomJoinError: string | null
+
+  // -- Sync state --
+  /** Non-null when a backend sync failed after all retries, prompting user to refresh */
+  lastSyncError: string | null
+  /** Whether a backend sync is currently in flight */
+  isSyncing: boolean
 
   // ========================================================================
   // Actions
@@ -382,10 +418,14 @@ export interface GameState {
   unsubscribeFromRoom: () => void
 
   // -- Backend sync --
-  /** Persist the current player list to the backend */
+  /** Persist the current player list to the backend using merge-based optimistic locking */
   updateRoomInBackend: (updatedPlayers: Player[]) => Promise<void>
   /** Debounced version of updateRoomInBackend with retry on failure */
-  debouncedSync: (updatedPlayers: Player[]) => void
+  debouncedSync: () => void
+  /** Clear the last sync error (e.g., after the user refreshes) */
+  clearSyncError: () => void
+  /** Manually retry syncing after a permanent failure */
+  retrySyncManually: () => void
 }
 
 // ============================================================================
@@ -447,17 +487,45 @@ const createNewPlayer = (id: string, name: string, roomId: string): Player => ({
 })
 
 /**
+ * Get the current date/time components in the camp's timezone (Cayman Islands).
+ * Uses Intl.DateTimeFormat so results are correct regardless of the player's
+ * device timezone setting.
+ */
+const getCaymanTime = (): { year: number; month: number; day: number; hour: number } => {
+  const now = new Date()
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: CAMP_TIMEZONE,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    hour12: false,
+  })
+  const parts = formatter.formatToParts(now)
+  const get = (type: string): number =>
+    Number(parts.find(p => p.type === type)?.value ?? 0)
+
+  return {
+    year: get('year'),
+    month: get('month') - 1, // 0-indexed to match Date.UTC convention
+    day: get('day'),
+    hour: get('hour'),
+  }
+}
+
+/**
  * Calculate the camp day number (1-5) from the current date and camp start date.
- * Returns the number of calendar days elapsed since the start date, plus 1.
- * Minimum return value is 1. If the current date is before the start, returns 0.
+ * Uses Cayman Islands timezone for consistent results across all player devices.
+ * Returns 1 as a safe fallback for invalid date strings instead of NaN.
  */
 const getCampDay = (campStartDate: string): number => {
-  const now = new Date()
   const start = new Date(campStartDate)
 
-  // Normalize both to UTC midnight to avoid timezone inconsistencies
-  // (new Date(string) parses as UTC, new Date(y,m,d) parses as local)
-  const nowMidnight = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  // Graceful fallback for invalid/missing date strings
+  if (isNaN(start.getTime())) return 1
+
+  const cayman = getCaymanTime()
+  const nowMidnight = Date.UTC(cayman.year, cayman.month, cayman.day)
   const startMidnight = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
 
   const diffMs = nowMidnight - startMidnight
@@ -486,17 +554,19 @@ const getCampDay = (campStartDate: string): number => {
 const checkLevelUnlocked = (level: number, campStartDate: string): boolean => {
   if (level < 1 || level > MAX_LEVEL) return false
 
-  const now = new Date()
   const campDay = getCampDay(campStartDate)
   const levelDay = Math.ceil(level / LEVELS_PER_DAY) // Level 1-10 = Day 1, 11-20 = Day 2, etc.
 
   // The camp day for this level hasn't arrived yet
   if (levelDay > campDay) return false
 
-  // If this is today's batch, check the 7AM gate
-  if (levelDay === campDay && now.getHours() < UNLOCK_HOUR) return false
+  // If this is today's batch, check the 7AM gate using Cayman timezone
+  if (levelDay === campDay) {
+    const cayman = getCaymanTime()
+    if (cayman.hour < UNLOCK_HOUR) return false
+  }
 
-  // Level's day has passed, or it's today and past 7AM
+  // Level's day has passed, or it's today and past 7AM (Cayman time)
   return true
 }
 
@@ -573,7 +643,7 @@ const simulateBusiness = (
   const profit = revenue - totalCosts
 
   // Generate contextual feedback
-  const feedback = generateScenarioFeedback(decision, scenario, profit, cupsSold)
+  const feedback = generateScenarioFeedback(decision, scenario, profit)
 
   return {
     cupsSold,
@@ -640,7 +710,6 @@ const generateScenarioFeedback = (
   decision: GameDecision,
   scenario: LevelScenario,
   profit: number,
-  cupsSold: number
 ): string[] => {
   const { price, quality, marketing } = decision
   const feedback: string[] = []
@@ -726,6 +795,24 @@ let retryTimeout: ReturnType<typeof setTimeout> | null = null
 /** Exponential backoff delays for sync retries (in milliseconds). */
 const SYNC_RETRY_DELAYS = [1000, 2000, 4000] as const
 
+/** Max retries for optimistic lock conflicts within a single updateRoomInBackend call. */
+const MERGE_MAX_RETRIES = 3
+
+/** Delays (ms) between optimistic lock retry attempts. */
+const MERGE_RETRY_DELAYS = [100, 200, 400] as const
+
+/** Exponential backoff delays for real-time subscription reconnection (ms). */
+const REALTIME_RECONNECT_DELAYS = [2000, 5000, 10000, 20000] as const
+
+/** Timeout handle for scheduled reconnection of the real-time subscription. */
+let realtimeReconnectTimeout: ReturnType<typeof setTimeout> | null = null
+
+/** Whether a sync is pending because the browser went offline. */
+let pendingSyncOnReconnect = false
+
+/** Counter for consecutive reconnection attempts. Reset on successful connect. */
+let realtimeReconnectAttempt = 0
+
 // ============================================================================
 // Zustand Store
 // ============================================================================
@@ -762,9 +849,14 @@ export const useGameStore = create<GameState>()(
 
       // Real-time subscription
       _roomUnsubscribe: null,
+      realtimeStatus: 'disconnected' as const,
 
       // Room join error
       roomJoinError: null,
+
+      // Sync state
+      lastSyncError: null,
+      isSyncing: false,
 
       // ====================================================================
       // Decision Actions
@@ -827,10 +919,20 @@ export const useGameStore = create<GameState>()(
       // ====================================================================
 
       runSimulation: () => {
-        const { currentPlayer, currentDecision, players, currentGameRoom, availableGameRooms } = get()
+        const { currentPlayer, isLevelUnlocked, isSimulating } = get()
+
+        // Guard: prevent double-click race condition
+        if (isSimulating) return
 
         if (!currentPlayer || currentPlayer.isGameOver) return
         if (currentPlayer.budget < FIXED_COSTS_PER_LEVEL) return
+
+        // Guard: verify the level is actually unlocked before allowing simulation
+        if (!isLevelUnlocked(currentPlayer.currentLevel)) return
+
+        // Validate decision inputs before running simulation
+        const validatedDecision = validateDecision(get().currentDecision)
+        if (!validatedDecision) return
 
         set({ isSimulating: true })
 
@@ -846,6 +948,12 @@ export const useGameStore = create<GameState>()(
           }
 
           const level = freshPlayer.currentLevel
+
+          // Re-verify the level is unlocked with fresh state
+          if (!freshState.isLevelUnlocked(level)) {
+            set({ isSimulating: false })
+            return
+          }
           const scenario = freshState.getLevelScenario(level)
           const budgetBeforeSimulation = freshPlayer.budget
 
@@ -858,6 +966,11 @@ export const useGameStore = create<GameState>()(
           // Process loan repayment (deducted after profit calculation)
           const loanResult = processLoanRepayment(freshPlayer, level)
           newBudget = roundCurrency(newBudget - loanResult.repaymentAmount)
+
+          // Guard: budget must never go below $0 (partial repayment if insufficient)
+          if (newBudget < 0) {
+            newBudget = 0
+          }
 
           // Build the level result record
           const levelResult: LevelResult = {
@@ -933,7 +1046,7 @@ export const useGameStore = create<GameState>()(
           })
 
           // Persist to backend asynchronously via debounced sync (don't block UI)
-          get().debouncedSync(updatedPlayers)
+          get().debouncedSync()
         }, 1500)
       },
 
@@ -995,6 +1108,9 @@ export const useGameStore = create<GameState>()(
           currentGameRoom: updatedCurrentRoom,
           availableGameRooms: updatedRooms,
         })
+
+        // Persist loan acceptance to backend (debouncedSync coalesces rapid calls)
+        get().debouncedSync()
       },
 
       declineLoan: () => {
@@ -1010,6 +1126,10 @@ export const useGameStore = create<GameState>()(
         const { currentPlayer, players, currentGameRoom, availableGameRooms } = get()
 
         if (!currentPlayer) return
+
+        // Cancel any pending sync timers to prevent stale data from being pushed
+        if (syncTimeout) { clearTimeout(syncTimeout); syncTimeout = null }
+        if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null }
 
         const resetPlayer = createNewPlayer(currentPlayer.id, currentPlayer.name, currentPlayer.roomId)
 
@@ -1040,7 +1160,7 @@ export const useGameStore = create<GameState>()(
           availableGameRooms: updatedRooms,
         })
 
-        get().debouncedSync(updatedPlayers)
+        get().debouncedSync()
       },
 
       advanceToNextLevel: () => {
@@ -1191,7 +1311,7 @@ export const useGameStore = create<GameState>()(
             const room: GameRoom = {
               id: roomData.room_id,
               name: roomData.room_name,
-              players: JSON.parse(roomData.players || '[]'),
+              players: safeParsePlayersJson(roomData.players, 'joinGameRoom'),
               createdAt: roomData.created_at,
               isActive: true,
               campStartDate: roomData.camp_start_date || '',
@@ -1271,7 +1391,7 @@ export const useGameStore = create<GameState>()(
           const rooms: GameRoom[] = response.items.map(item => ({
             id: item.room_id,
             name: item.room_name,
-            players: JSON.parse(item.players || '[]'),
+            players: safeParsePlayersJson(item.players, 'loadGameRooms'),
             createdAt: item.created_at,
             isActive: true,
             campStartDate: item.camp_start_date || '',
@@ -1286,7 +1406,7 @@ export const useGameStore = create<GameState>()(
       },
 
       refreshCurrentRoom: async () => {
-        const { currentGameRoom } = get()
+        const { currentGameRoom, currentPlayer } = get()
         if (!currentGameRoom) return
 
         try {
@@ -1296,18 +1416,36 @@ export const useGameStore = create<GameState>()(
 
           if (response.items.length > 0) {
             const roomData = response.items[0]!
+            const remotePlayers: Player[] = safeParsePlayersJson(roomData.players, 'refreshCurrentRoom')
+
             const updatedRoom: GameRoom = {
               id: roomData.room_id,
               name: roomData.room_name,
-              players: JSON.parse(roomData.players || '[]'),
+              players: remotePlayers,
               createdAt: roomData.created_at,
               isActive: true,
               campStartDate: roomData.camp_start_date || '',
             }
 
+            // If we have a current player, check if they exist in the remote data
+            // and update their local state from remote. This handles facilitator resets
+            // and server-side corrections. Since refreshCurrentRoom is called on page
+            // mount (before user interaction), it's safe to accept the remote state.
+            let updatedCurrentPlayer = currentPlayer
+            if (currentPlayer) {
+              const remotePlayer = remotePlayers.find(p => p.id === currentPlayer.id)
+              if (remotePlayer) {
+                updatedCurrentPlayer = remotePlayer
+              } else {
+                // Player was removed from the room (facilitator action)
+                updatedCurrentPlayer = null
+              }
+            }
+
             set((state) => ({
               currentGameRoom: updatedRoom,
               players: updatedRoom.players,
+              currentPlayer: updatedCurrentPlayer,
               availableGameRooms: state.availableGameRooms.map(room =>
                 room.id === updatedRoom.id ? updatedRoom : room
               ),
@@ -1359,16 +1497,49 @@ export const useGameStore = create<GameState>()(
           }
         }
 
-        // 2. Fallback: check for an existing player by name (case-insensitive)
-        //    in the same room. This handles the case where a player switches
-        //    devices or clears their browser storage.
-        const existingByName = players.find(
-          p => p.name.toLowerCase() === name.trim().toLowerCase()
+        // 2. Check for duplicate names (case-insensitive) in the room.
+        //    Fetch the latest player list from Supabase so we catch names that
+        //    only exist on the server (another device added them).
+        const normalizedName = name.trim().toLowerCase()
+
+        // Merge local + remote player lists for a comprehensive check
+        let allKnownPlayers = players
+        try {
+          const remoteQuery = await table.getItems('game_rooms', {
+            query: { room_id: currentGameRoom.id },
+          })
+          if (remoteQuery.items.length > 0) {
+            const remotePlayers: Player[] = safeParsePlayersJson(
+              remoteQuery.items[0]!.players, 'addPlayer-duplicateCheck'
+            )
+            // Use remote as source of truth, augmented by any local-only players
+            const remoteIds = new Set(remotePlayers.map(p => p.id))
+            allKnownPlayers = [
+              ...remotePlayers,
+              ...players.filter(p => !remoteIds.has(p.id)),
+            ]
+          }
+        } catch {
+          // If Supabase is unreachable, fall back to local players only
+        }
+
+        const existingByName = allKnownPlayers.find(
+          p => p.name.toLowerCase() === normalizedName
             && p.roomId === currentGameRoom.id
         )
 
         if (existingByName) {
-          // Persist the association so subsequent visits reconnect by ID
+          // If the player had a stored ID that didn't match anyone, they are
+          // a different person — block the duplicate name.
+          if (storedPlayerId) {
+            const suggestion = suggestAlternativeName(name.trim(), allKnownPlayers)
+            throw new Error(
+              `The name "${name.trim()}" is already taken in this room. Try "${suggestion}" instead.`
+            )
+          }
+
+          // No stored ID — likely a returning player on a new device.
+          // Allow reconnection to the existing session.
           localStorage.setItem(storageKey, existingByName.id)
           const playerScenario = get().getLevelScenario(existingByName.currentLevel)
           set({
@@ -1514,8 +1685,15 @@ export const useGameStore = create<GameState>()(
           _roomUnsubscribe()
         }
 
+        // Cancel any pending reconnect timer
+        if (realtimeReconnectTimeout) {
+          clearTimeout(realtimeReconnectTimeout)
+          realtimeReconnectTimeout = null
+        }
+
         const roomId = currentGameRoom.id
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase realtime payload
         const channel = table.subscribe('game_rooms', (payload: any) => {
           const updatedRow = payload.new ?? payload
           // Safety check: skip if the payload is for a different room
@@ -1524,44 +1702,85 @@ export const useGameStore = create<GameState>()(
 
           try {
             const remotePlayers: Player[] = JSON.parse(updatedRow.players || '[]')
-            const { currentPlayer, players } = get()
+            const { currentPlayer } = get()
 
-            // Merge remote players with local state. If we have a current
-            // player active, preserve their local state to avoid overwriting
-            // in-flight decisions.
+            // Merge remote players with local state. For the current player,
+            // detect facilitator resets (level/results regressed) and accept
+            // them, while preserving local state for our own sync echoes.
+            let updatedCurrentPlayer: Player | null = currentPlayer
             const mergedPlayers = remotePlayers.map((remotePlayer) => {
               if (currentPlayer && remotePlayer.id === currentPlayer.id) {
-                // Keep the local player's state (they are the authoritative source)
+                // Detect facilitator reset: remote has fewer completed levels
+                // or lower currentLevel than local — this means data was rolled
+                // back server-side. Accept the remote state.
+                const isReset =
+                  remotePlayer.completedLevels.length < currentPlayer.completedLevels.length ||
+                  remotePlayer.currentLevel < currentPlayer.currentLevel ||
+                  (remotePlayer.isGameOver !== currentPlayer.isGameOver)
+
+                if (isReset) {
+                  updatedCurrentPlayer = remotePlayer
+                  return remotePlayer
+                }
+
+                // Not a reset — keep local state (authoritative during active play)
                 return currentPlayer
               }
               // For all other players, accept the remote state
-              const localPlayer = players.find(p => p.id === remotePlayer.id)
-              return localPlayer
-                ? { ...localPlayer, ...remotePlayer }
-                : remotePlayer
+              return remotePlayer
             })
 
-            // Also check if the current player was removed remotely
+            // Check if the current player was removed remotely
             // (e.g., facilitator cleared the room).
-            const currentPlayerStillExists = currentPlayer
-              ? mergedPlayers.some(p => p.id === currentPlayer.id)
-              : false
+            if (currentPlayer && !remotePlayers.some(p => p.id === currentPlayer.id)) {
+              updatedCurrentPlayer = null
+            }
 
             set((state) => ({
               players: mergedPlayers,
               currentGameRoom: state.currentGameRoom
                 ? { ...state.currentGameRoom, players: mergedPlayers }
                 : null,
-              currentPlayer: currentPlayerStillExists ? state.currentPlayer : null,
+              currentPlayer: updatedCurrentPlayer,
             }))
           } catch (error) {
             console.error('Failed to process real-time room update:', error)
           }
-        }, roomId)
+        }, roomId, (status: string) => {
+          // Handle channel status changes for reconnection
+          if (status === 'SUBSCRIBED') {
+            realtimeReconnectAttempt = 0
+            set({ realtimeStatus: 'connected' })
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            set({ realtimeStatus: 'disconnected' })
+
+            // Schedule reconnection with exponential backoff
+            const { currentGameRoom: currentRoom } = get()
+            if (currentRoom && currentRoom.id === roomId) {
+              const delayIndex = Math.min(realtimeReconnectAttempt, REALTIME_RECONNECT_DELAYS.length - 1)
+              const delay = REALTIME_RECONNECT_DELAYS[delayIndex] ?? REALTIME_RECONNECT_DELAYS[REALTIME_RECONNECT_DELAYS.length - 1]!
+              realtimeReconnectAttempt++
+
+              console.warn(`Real-time subscription ${status}. Reconnecting in ${delay}ms (attempt ${realtimeReconnectAttempt})...`)
+              set({ realtimeStatus: 'reconnecting' })
+
+              realtimeReconnectTimeout = setTimeout(() => {
+                const { currentGameRoom: stillCurrentRoom } = get()
+                if (stillCurrentRoom && stillCurrentRoom.id === roomId) {
+                  get().subscribeToRoom()
+                }
+              }, delay)
+            }
+          }
+        })
 
         // Store the unsubscribe function
         const unsubscribe = () => {
           channel.unsubscribe()
+          if (realtimeReconnectTimeout) {
+            clearTimeout(realtimeReconnectTimeout)
+            realtimeReconnectTimeout = null
+          }
         }
 
         set({ _roomUnsubscribe: unsubscribe })
@@ -1571,8 +1790,14 @@ export const useGameStore = create<GameState>()(
         const { _roomUnsubscribe } = get()
         if (_roomUnsubscribe) {
           _roomUnsubscribe()
-          set({ _roomUnsubscribe: null })
+          set({ _roomUnsubscribe: null, realtimeStatus: 'disconnected' })
         }
+        // Cancel any pending reconnect
+        if (realtimeReconnectTimeout) {
+          clearTimeout(realtimeReconnectTimeout)
+          realtimeReconnectTimeout = null
+        }
+        realtimeReconnectAttempt = 0
       },
 
       // ====================================================================
@@ -1580,28 +1805,130 @@ export const useGameStore = create<GameState>()(
       // ====================================================================
 
       updateRoomInBackend: async (updatedPlayers: Player[]) => {
-        const { currentGameRoom } = get()
+        const { currentGameRoom, currentPlayer } = get()
         if (!currentGameRoom) return
 
-        try {
-          const roomQuery = await table.getItems('game_rooms', {
-            query: { room_id: currentGameRoom.id },
-          })
+        // Skip network calls when offline — flag for sync on reconnect
+        if (!navigator.onLine) {
+          pendingSyncOnReconnect = true
+          return
+        }
 
-          if (roomQuery.items.length > 0) {
+        // Clear any previous sync error on new attempt
+        set({ lastSyncError: null, isSyncing: true })
+
+        for (let attempt = 0; attempt <= MERGE_MAX_RETRIES; attempt++) {
+          try {
+            // 1. Fetch latest remote state
+            const roomQuery = await table.getItems('game_rooms', {
+              query: { room_id: currentGameRoom.id },
+            })
+            if (roomQuery.items.length === 0) return
+
             const roomItem = roomQuery.items[0]!
+            const remotePlayers: Player[] = JSON.parse(roomItem.players || '[]')
+            const remoteLastUpdated = roomItem.last_updated as number
+
+            // 2. Merge: replace only the current player's entry in the remote array
+            //    This prevents overwriting other players' data when multiple players
+            //    submit decisions concurrently.
+            let mergedPlayers: Player[]
+
+            if (currentPlayer) {
+              const localPlayerData = updatedPlayers.find(p => p.id === currentPlayer.id)
+
+              if (localPlayerData) {
+                const existsInRemote = remotePlayers.some(p => p.id === currentPlayer.id)
+                if (existsInRemote) {
+                  // Replace only this player's entry in the remote array
+                  mergedPlayers = remotePlayers.map(p =>
+                    p.id === currentPlayer.id ? localPlayerData : p
+                  )
+                } else {
+                  // Player is new (just joined), append them
+                  mergedPlayers = [...remotePlayers, localPlayerData]
+                }
+              } else {
+                // Fallback: full overwrite (should not happen in normal flow)
+                mergedPlayers = updatedPlayers
+              }
+            } else {
+              // No current player (facilitator action, e.g. clearing leaderboard)
+              mergedPlayers = updatedPlayers
+            }
+
+            // 3. Conditional update using last_updated as optimistic lock.
+            //    The update only applies if no other write changed last_updated
+            //    between our read (step 1) and this write.
+            const now = Date.now()
+            const { data, error } = await supabase
+              .from('game_rooms')
+              .update({
+                players: JSON.stringify(mergedPlayers),
+                last_updated: now,
+              })
+              .eq('room_id', currentGameRoom.id)
+              .eq('last_updated', remoteLastUpdated)
+              .select()
+
+            if (error) throw error
+
+            // 4. Check if the update applied (0 rows = conflict)
+            if (data && data.length > 0) {
+              // Success — optimistic lock acquired and write committed
+              set({ isSyncing: false })
+              return
+            }
+
+            // Conflict detected: another write happened between our read and write
+            if (attempt < MERGE_MAX_RETRIES) {
+              const delay = MERGE_RETRY_DELAYS[Math.min(attempt, MERGE_RETRY_DELAYS.length - 1)]!
+              console.warn(
+                `Optimistic lock conflict on room ${currentGameRoom.id}, ` +
+                `retrying in ${delay}ms (attempt ${attempt + 1}/${MERGE_MAX_RETRIES})...`
+              )
+              await new Promise(resolve => setTimeout(resolve, delay))
+              continue
+            }
+
+            // All retries exhausted — force write as last resort to prevent data loss
+            console.error(
+              `Optimistic lock failed after ${MERGE_MAX_RETRIES} retries. ` +
+              `Falling back to unconditional write.`
+            )
             await table.updateItem('game_rooms', {
-              _uid: roomItem._uid,
-              _id: roomItem._id,
               room_id: currentGameRoom.id,
-              players: JSON.stringify(updatedPlayers),
+              players: JSON.stringify(mergedPlayers),
               last_updated: Date.now(),
             })
+
+            set({
+              isSyncing: false,
+              lastSyncError: 'Sync conflict detected. Your data was saved, but you may want to refresh to see the latest from other players.',
+            })
+            return
+          } catch (error) {
+            console.error('Failed to update room in backend:', error)
+            if (attempt >= MERGE_MAX_RETRIES) {
+              set({
+                isSyncing: false,
+                lastSyncError: 'Failed to save your progress. Please check your connection and refresh.',
+              })
+            }
+            throw error
           }
-        } catch (error) {
-          console.error('Failed to update room in backend:', error)
-          throw error
         }
+      },
+
+      clearSyncError: () => {
+        set({ lastSyncError: null, isSyncing: false })
+      },
+
+      retrySyncManually: () => {
+        const { currentGameRoom } = get()
+        if (!currentGameRoom) return
+        set({ lastSyncError: null })
+        get().debouncedSync()
       },
 
       /**
@@ -1609,7 +1936,7 @@ export const useGameStore = create<GameState>()(
        * write after a 2-second quiet period. On failure, retries up to 3
        * times with exponential backoff (1s, 2s, 4s).
        */
-      debouncedSync: (_updatedPlayers: Player[]) => {
+      debouncedSync: () => {
         // Only cancel the pending primary sync; let any in-flight retry
         // complete independently so a failed sync still gets its retry.
         if (syncTimeout) clearTimeout(syncTimeout)
@@ -1623,6 +1950,10 @@ export const useGameStore = create<GameState>()(
             const scheduleRetry = (attempt: number): void => {
               if (attempt >= SYNC_RETRY_DELAYS.length) {
                 console.error(`Backend sync failed after ${SYNC_RETRY_DELAYS.length} retries. Continuing with local state.`)
+                set({
+                  isSyncing: false,
+                  lastSyncError: 'Your progress could not be saved after multiple attempts. Use the retry button or check your connection.',
+                })
                 return
               }
               retryTimeout = setTimeout(() => {
@@ -1640,6 +1971,7 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: 'lemonade-game-storage-v2',
+      version: 1,
       partialize: (state) => ({
         // Persist authentication
         user: state.user,
@@ -1651,14 +1983,42 @@ export const useGameStore = create<GameState>()(
       }),
       onRehydrateStorage: () => {
         // Called after Zustand restores persisted state from localStorage.
-        // If a game room was active before the page refresh, re-establish
-        // the real-time subscription so the player continues receiving updates.
-        return (state) => {
+        // Validates rehydrated state and re-establishes subscriptions.
+        return (state, error) => {
+          if (error) {
+            console.warn('[Lemonade Stand] Failed to rehydrate state, clearing localStorage:', error)
+            localStorage.removeItem('lemonade-game-storage-v2')
+            return
+          }
           if (state?.currentGameRoom) {
             state.subscribeToRoom()
           }
         }
       },
+      migrate: (persistedState: unknown, version: number) => {
+        // If stored version doesn't match, discard stale data
+        if (version < 1) {
+          console.warn('[Lemonade Stand] Outdated storage version, resetting state')
+          return {} as Partial<GameState>
+        }
+        return persistedState as Partial<GameState>
+      },
     }
   )
 )
+
+// ---------------------------------------------------------------------------
+// Online/offline sync: when the browser comes back online, flush any
+// pending player data to Supabase so progress is not lost.
+// ---------------------------------------------------------------------------
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    if (pendingSyncOnReconnect) {
+      pendingSyncOnReconnect = false
+      const { currentGameRoom } = useGameStore.getState()
+      if (currentGameRoom) {
+        useGameStore.getState().debouncedSync()
+      }
+    }
+  })
+}

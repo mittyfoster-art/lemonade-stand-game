@@ -1,14 +1,15 @@
-# Lemonade Stand Game - Multi-Factor Scoring Implementation
+# Lemonade Stand Business Simulation v2.0 - Application Specification
 
 ## Project Overview
 
-**Project Name:** Lemonade Stand Business Simulation - Multi-Factor Scoring Update
-**Project Type:** Feature Enhancement
-**Base Project:** Existing React/TypeScript Vite application
+**Project Name:** Lemonade Stand Business Simulation v2.0
+**Project Type:** Full-Stack Web Application (Business Simulation Game)
+**Context:** TeenPreneurship Camp 2026 (CICBD, Cayman Islands) | July 13-17, 2026
+**Audience:** Youth aged 14-17 (25-30 participants)
 
 ### Objective
 
-Implement the approved Multi-Factor Scoring Model (Option B - 100 points) to replace the current profit-only scoring system. This involves updating the data model, adding new UI components, implementing scoring algorithms, and creating facilitator tools.
+Build an individual-player, competitive business simulation game that runs across a 5-day summer camp. Players manage a virtual lemonade stand through 50 levels (10 per camp day), making pricing, quality, and marketing decisions while managing a persistent budget and optional loan offers. The game teaches financial literacy, strategic thinking, and business fundamentals through experiential learning.
 
 ---
 
@@ -21,17 +22,82 @@ Implement the approved Multi-Factor Scoring Model (Option B - 100 points) to rep
 | Styling | Tailwind CSS |
 | UI Components | shadcn/ui |
 | State Management | Zustand (with persist middleware) |
-| Backend | Devv Backend (existing) |
-| Database | SQLite for features (local), Devv tables (production) |
+| Backend | Supabase (PostgreSQL + Realtime) |
+| Authentication | Simple name + room code (no email/password for players) |
+| Testing | Vitest (unit), Playwright (e2e) |
+| Dev Server | Port 4000 |
 
 ---
 
-## Prerequisites
+## Game Model
 
-- Node.js 18+
-- Existing Lemonade Stand Game codebase
-- Claude Code CLI installed and authenticated
-- Specification documents in `/spec` folder
+### Individual Player Competition
+
+- **NOT team-based** — every player competes independently
+- Players join a shared game room via a room code
+- Each player manages their own lemonade stand with their own budget
+- Live leaderboard ranks all players by cumulative profit
+
+### Progression
+
+- **50 levels total** across 5 camp days (10 levels per day)
+- Levels unlock at 7:00 AM each camp day
+- Previous days' unfinished levels remain accessible
+- Sequential within a day (must complete level N before N+1)
+- Starting budget: **$500**
+- Game over when budget drops below $20
+
+### Three Decisions Per Level
+
+| Decision | Range | Default | Impact |
+|----------|-------|---------|--------|
+| **Cup Price** | $0.25 - $2.00 (in $0.05 steps) | $1.00 | Lower prices attract more customers but reduce per-cup revenue |
+| **Quality** | 1-5 stars | 3 | Higher quality increases cost per cup (1.0x to 2.8x multiplier) |
+| **Marketing** | $0 - $30 (in $1 steps) | $10 | Increases awareness; diminishing returns above $20 |
+
+### Demand Formula
+
+```
+baseDemand = 50 cups
+
+priceScore = price within scenario optimal range ? 1.2 : 0.8
+qualityScore = quality within scenario optimal range ? 1.2 : 0.8
+marketingScore = marketing within scenario optimal range ? 1.2 : 0.8
+
+priceAttractiveness = ((2.0 - price) / 1.75) * priceScore
+qualityFactor = (quality / 5) * qualityScore
+marketingFactor = (1 + (marketing / 50)) * marketingScore
+weatherEffect = scenario.weatherEffect  // range: 0.6 - 1.4
+scenarioMultiplier = 1.0 (low) | 1.1 (medium) | 1.3 (high deception)
+
+finalDemand = baseDemand * priceAttractiveness * qualityFactor * marketingFactor * weatherEffect * scenarioMultiplier
+cupsSold = min(floor(finalDemand), 150)  // capacity cap
+```
+
+### Financial Calculation
+
+```
+revenue = cupsSold * price
+ingredientCost = cupsSold * (baseIngredientCost * qualityMultiplier)
+totalCosts = fixedCosts($20) + marketingSpend + ingredientCost
+profit = revenue - totalCosts
+newBudget = currentBudget + profit - loanRepayment (if applicable)
+```
+
+### Loan System
+
+6 loan offers at designated levels with auto-repayment over 10 levels:
+
+| Level | Amount | Per-Level Repayment | Total Repayment | Interest |
+|-------|--------|---------------------|-----------------|----------|
+| 15 | $100 | $12 | $120 | 20% |
+| 20 | $150 | $17 | $170 | ~13% |
+| 25 | $200 | $22 | $220 | 10% |
+| 30 | $250 | $27 | $270 | 8% |
+| 35 | $150 | $18 | $180 | 20% |
+| 40 | $300 | $32 | $320 | ~7% |
+
+**Rules:** One loan at a time, automatic repayment, no early repayment, no penalty for declining.
 
 ---
 
@@ -40,221 +106,127 @@ Implement the approved Multi-Factor Scoring Model (Option B - 100 points) to rep
 ```
 /Lemonade Stand Business Simulation
 ├── src/
+│   ├── App.tsx                    # Router and layout
+│   ├── main.tsx                   # Entry point
+│   ├── index.css                  # Global styles and Tailwind
+│   ├── pages/
+│   │   ├── HomePage.tsx           # Welcome + status overview
+│   │   ├── PlayPage.tsx           # Core gameplay (decisions + simulation)
+│   │   ├── ResultsPage.tsx        # Post-level results and feedback
+│   │   ├── LevelsPage.tsx         # Visual level map (50 levels)
+│   │   ├── LeaderboardPage.tsx    # Competition rankings
+│   │   ├── ProfilePage.tsx        # Player stats dashboard
+│   │   ├── LoansPage.tsx          # Loan management centre
+│   │   ├── HowToPlayPage.tsx      # Rules and tutorial
+│   │   ├── AwardsPage.tsx         # Final awards ceremony
+│   │   ├── FacilitatorPage.tsx    # Admin dashboard
+│   │   └── NotFoundPage.tsx       # 404 page
 │   ├── components/
-│   │   ├── ui/              # shadcn components (existing)
-│   │   ├── scoring/         # NEW: Multi-factor scoring components
-│   │   │   ├── ScoreBreakdown.tsx
-│   │   │   ├── ScoreCategory.tsx
-│   │   │   ├── EfficiencyIndicator.tsx
-│   │   │   ├── RoundHistoryTracker.tsx
-│   │   │   └── CategoryAwards.tsx
-│   │   ├── facilitator/     # NEW: Facilitator tools
-│   │   │   ├── FacilitatorScoreInput.tsx
-│   │   │   └── RiskAssessmentForm.tsx
-│   │   ├── Leaderboard.tsx  # UPDATE: Multi-factor display
-│   │   └── ResultsDisplay.tsx # UPDATE: Add score breakdown
+│   │   ├── ui/                    # shadcn/ui components
+│   │   ├── layout/
+│   │   │   ├── DesktopSidebar.tsx # Side nav for desktop
+│   │   │   └── MobileHeader.tsx   # Top bar + bottom tabs for mobile
+│   │   ├── PlayerJoinForm.tsx     # Name + room code entry
+│   │   ├── Leaderboard.tsx        # Leaderboard display component
+│   │   ├── ResultsDisplay.tsx     # Results breakdown component
+│   │   ├── DecisionCard.tsx       # Decision input component
+│   │   ├── DailyScenario.tsx      # Scenario briefing display
+│   │   └── LoadingSimulation.tsx  # Simulation animation
 │   ├── store/
-│   │   └── game-store.ts    # UPDATE: Add scoring state/actions
+│   │   └── game-store.ts          # Zustand store (all game state)
 │   ├── lib/
-│   │   ├── utils.ts         # Existing
-│   │   └── scoring.ts       # NEW: Scoring calculation functions
-│   └── types/
-│       └── scoring.ts       # NEW: TypeScript interfaces
-├── spec/                    # Specification documents (existing)
-└── autonomous-coder/        # This autonomous coder system
+│   │   ├── utils.ts               # Utility functions (cn, formatCurrency)
+│   │   └── supabase.ts            # Supabase client + sync functions
+│   ├── types/                     # TypeScript type definitions
+│   ├── data/
+│   │   └── scenarios.ts           # 50 scenario definitions
+│   └── hooks/                     # Custom React hooks
+├── spec/                          # Game specification documents
+├── autonomous-coder/              # Autonomous coding system
+├── e2e/                           # Playwright e2e tests
+├── supabase/                      # Supabase migrations
+├── public/                        # Static assets
+├── playwright.config.ts
+├── vite.config.ts
+├── tsconfig.app.json
+├── tailwind.config.js
+└── package.json
 ```
 
 ---
 
-## Core Features to Implement
+## Known Issues (Current State)
 
-### Total Features: ~45
+These issues exist in the current codebase and need to be addressed:
 
-### Category 1: Data Model Updates (8 features)
-1. Create MultiFactorScore interface
-2. Create RoundResult interface
-3. Create DecisionQuality interface
-4. Update Team interface with scoring fields
-5. Add roundHistory array to Team
-6. Add totalCupsMade tracking
-7. Add profitableRounds counter
-8. Create RiskManagementInput interface
-
-### Category 2: Scoring Calculations (10 features)
-9. Implement getProfitRankingPoints function
-10. Implement calculateProfitRanks function
-11. Implement getConsistencyPoints function
-12. Implement calculateSpoilageRate function
-13. Implement getEfficiencyPoints function
-14. Implement calculateMultiFactorScore function
-15. Implement tiebreaker resolution logic
-16. Add cupsMade calculation to simulation
-17. Update simulation to track spoilage
-18. Add decisionQuality tracking to results
-
-### Category 3: Store Actions (8 features)
-19. Add calculateMultiFactorScores action
-20. Add setRiskManagementScore action
-21. Add getFinalLeaderboard action
-22. Add addRoundToHistory action
-23. Update runSimulation to populate new fields
-24. Update team state after round completion
-25. Add riskManagementScores state (Map)
-26. Add finalScores state (Map)
-
-### Category 4: UI Components - Scoring (8 features)
-27. Create ScoreCategory component
-28. Create ScoreBreakdown component
-29. Create EfficiencyIndicator component
-30. Create RoundHistoryTracker component
-31. Create CategoryAwards component
-32. Update ResultsDisplay with score breakdown
-33. Add real-time score panel (optional)
-34. Create score progress bars
-
-### Category 5: UI Components - Facilitator (4 features)
-35. Create FacilitatorScoreInput component
-36. Create RiskAssessmentForm component
-37. Add facilitator mode toggle
-38. Create facilitator dashboard view
-
-### Category 6: Leaderboard Updates (5 features)
-39. Update Leaderboard with multi-factor columns
-40. Add score breakdown modal
-41. Implement category awards display
-42. Add export functionality (CSV)
-43. Add print certificates feature
-
-### Category 7: Testing & Polish (2+ features)
-44. Add scoring calculation tests
-45. Edge case handling and validation
+1. **Playwright config port mismatch** — `playwright.config.ts` references port 5174 instead of 4000
+2. **DB schema drift** — Supabase migration still references `teams` table instead of `players`; missing `camp_start_date` column
+3. **Player reconnection bug** — Duplicate player entries created when a player refreshes or rejoins the room
+4. **Dead v1 scoring code** — `src/lib/scoring.ts`, `src/types/scoring.ts`, and `src/components/scoring/` contain obsolete multi-factor scoring code from v1 that should be removed
+5. **Dead mock backend** — `src/lib/mock-backend.ts` contains unused Devv backend mock code
+6. **No loading states** — Pages lack loading skeletons and error states
+7. **Incomplete mobile responsiveness** — Some pages not optimized for mobile viewports
 
 ---
 
-## Scoring Model Specification
+## Scoring System
 
-### Multi-Factor Score (100 points total)
+### Primary Ranking Metric: Cumulative Profit
 
-| Component | Max Points | Calculation |
-|-----------|------------|-------------|
-| Profit Ranking | 50 | Position-based (1st=50, 2nd=45, etc.) |
-| Consistency | 20 | 4 points per profitable round |
-| Efficiency | 15 | Based on spoilage rate |
-| Risk Management | 15 | Facilitator assessment |
-
-### Profit Ranking Points
 ```
-1st place  → 50 points
-2nd place  → 45 points
-3rd place  → 40 points
-4th place  → 35 points
-5th place  → 30 points
-6th-10th   → 25 points
-11th-15th  → 20 points
-16th-20th  → 15 points
-21st+      → 10 points
+Total Score = Sum of profit from all completed levels
 ```
 
-### Efficiency Points (Spoilage Rate)
-```
-0-10%   → 15 points
-11-20%  → 12 points
-21-30%  → 9 points
-31-40%  → 6 points
-41-50%  → 3 points
-51%+    → 0 points
-```
+### Tiebreaker Order
 
----
+1. Total cumulative profit (highest wins)
+2. Total revenue generated (highest wins)
+3. Total cups sold (highest wins)
+4. Levels completed (most wins)
 
-## Key TypeScript Interfaces
+### Leaderboard Display
 
-```typescript
-interface MultiFactorScore {
-  profitRanking: number;    // 0-50
-  consistency: number;      // 0-20
-  efficiency: number;       // 0-15
-  riskManagement: number;   // 0-15
-  total: number;            // 0-100
-  profitRank: number;
-  spoilageRate: number;
-  profitableRounds: number;
-  calculatedAt: number;
-}
+| Rank | Player | Levels | Budget | Total Profit | Revenue | Cups Sold | Loan Status |
+|------|--------|--------|--------|-------------|---------|-----------|-------------|
+| 1 | Player A | 28/50 | $742 | $342 | $1,890 | 1,245 | Repaid |
 
-interface RoundResult {
-  round: number;
-  scenarioId: string;
-  decision: GameDecision;
-  cupsMade: number;
-  cupsSold: number;
-  spoilageRate: number;
-  revenue: number;
-  costs: number;
-  profit: number;
-  decisionQuality: DecisionQuality;
-  timestamp: number;
-}
+### Final Awards (Day 5 Ceremony)
 
-interface RiskManagementInput {
-  teamId: string;
-  productionAdjustment: number;  // 0-5
-  pricingStrategy: number;       // 0-5
-  budgetReserves: number;        // 0-5
-  total: number;                 // 0-15
-  notes: string;
-  assessedBy: string;
-  assessedAt: number;
-}
-```
-
----
-
-## Implementation Guidelines
-
-### Code Style
-- Use TypeScript strict mode
-- Follow existing component patterns (shadcn/ui)
-- Use Tailwind CSS for styling
-- Maintain existing color scheme (orange/yellow theme)
-
-### State Management
-- All scoring state in Zustand store
-- Use persist middleware for local storage
-- Sync with Devv backend for multi-player
-
-### Testing
-- Each feature should be tested visually in browser
-- Verify calculations match specification
-- Test edge cases (zero values, ties, negative profits)
-
-### Performance
-- Lazy load facilitator components
-- Memoize expensive calculations
-- Avoid re-rendering entire leaderboard
+| Award | Criteria |
+|-------|----------|
+| Lemonade Tycoon | Highest cumulative profit |
+| Revenue King/Queen | Highest total revenue |
+| Customer Favourite | Most cups sold |
+| Marathon Runner | Most levels completed |
+| Loan Shark | Best loan ROI |
+| Comeback Kid | Biggest recovery from lowest budget point |
+| Most Improved | Largest per-level profit improvement Day 1 to Day 5 |
 
 ---
 
 ## Reference Documents
 
-- `/spec/00_SPEC_INDEX.md` - Master specification index
-- `/spec/01_SCORING_SYSTEM.md` - Detailed scoring formulas
-- `/spec/02_GAME_MECHANICS.md` - Game logic reference
-- `/spec/03_UI_COMPONENTS.md` - Component specifications
-- `/spec/04_DATA_MODEL.md` - Data structure definitions
-- `/spec/05_SCENARIOS.md` - Scenario reference
-- `/spec/06_LEADERBOARD.md` - Leaderboard specifications
-- `/spec/07_TEST_CASES.md` - Test case specifications
+- `../Lemonade_Game_Learning_Objectives_and_Mechanics.md` — Master v2 specification
+- `spec/00_SPEC_INDEX.md` — Specification index
+- `spec/01_SCORING_SYSTEM.md` — Scoring formulas (note: some content is from v1 multi-factor model)
+- `spec/02_GAME_MECHANICS.md` — Game mechanics reference
+- `spec/03_UI_COMPONENTS.md` — Component specifications
+- `spec/04_DATA_MODEL.md` — Data structure definitions
+- `spec/05_SCENARIOS.md` — Scenario reference
+- `spec/06_LEADERBOARD.md` — Leaderboard specifications
+- `spec/07_TEST_CASES.md` — Test case specifications
 
 ---
 
 ## Success Criteria
 
-1. All 45+ features implemented and tested
-2. Scoring calculations match spec exactly
-3. UI displays all score components clearly
-4. Facilitator can input risk management scores
-5. Leaderboard shows multi-factor rankings
-6. Category awards displayed correctly
-7. No regression in existing functionality
-8. Backend sync works for multi-player mode
+1. All ~35 implementation features completed and passing checks
+2. Game playable from level 1 through 50 with persistent budget
+3. Loan system fully functional with auto-repayment
+4. Real-time leaderboard showing all players ranked by profit
+5. Multi-page navigation working on both desktop and mobile
+6. Supabase backend syncing player state across devices
+7. No TypeScript errors, clean ESLint, successful production build
+8. Playwright e2e tests passing for core game flow
+9. Mobile-first responsive design on all pages
+10. Facilitator can view all player progress and export data

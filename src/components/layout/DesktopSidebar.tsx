@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { useGameStore } from "@/store/game-store";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { CampCountdown } from "@/components/CampCountdown";
+import { SyncStatus } from "@/components/SyncStatus";
 
 /** Navigation route definitions used by both desktop sidebar and mobile drawer. */
 export interface NavItem {
@@ -128,10 +129,13 @@ export default function DesktopSidebar() {
 
       <Separator />
 
-      {/* ---- Theme toggle ---- */}
+      {/* ---- Theme toggle & sync status ---- */}
       <div className="flex items-center justify-between px-6 py-2">
         <span className="text-xs font-medium text-muted-foreground">Theme</span>
-        <ThemeToggle />
+        <div className="flex items-center gap-2">
+          <SyncStatus />
+          <ThemeToggle />
+        </div>
       </div>
 
       <Separator />

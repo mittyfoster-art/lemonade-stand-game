@@ -58,6 +58,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useGameStore } from "@/store/game-store";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
   formatBudget,
   getBudgetColorClass,
@@ -116,11 +117,11 @@ export default function ProfilePage() {
     }
   }, [currentPlayer, navigate]);
 
-  // Extract data with safe defaults so hooks are called before any early return
-  const levelResults = currentPlayer?.levelResults ?? [];
-  const completedLevels = currentPlayer?.completedLevels ?? [];
+  // Extract data with stable references so downstream useMemo hooks don't re-run on every render
+  const levelResults = useMemo(() => currentPlayer?.levelResults ?? [], [currentPlayer?.levelResults]);
+  const completedLevels = useMemo(() => currentPlayer?.completedLevels ?? [], [currentPlayer?.completedLevels]);
   const totalProfit = currentPlayer?.totalProfit ?? 0;
-  const loanHistory = currentPlayer?.loanHistory ?? [];
+  const loanHistory = useMemo(() => currentPlayer?.loanHistory ?? [], [currentPlayer?.loanHistory]);
   const activeLoan = currentPlayer?.activeLoan ?? null;
 
   // Decision pattern averages
@@ -172,7 +173,12 @@ export default function ProfilePage() {
   }, [levelResults]);
 
   if (!currentPlayer) {
-    return null;
+    return (
+      <LoadingSpinner
+        message="Loading your profile..."
+        submessage="Preparing your stats and history"
+      />
+    );
   }
 
   const {
@@ -400,7 +406,7 @@ export default function ProfilePage() {
           </CardHeader>
           <CardContent>
             <ScrollArea className="w-full">
-              <div className="flex items-end gap-1 min-w-[600px] h-40 pt-4">
+              <div className="flex items-end gap-1 min-w-[300px] sm:min-w-[600px] h-40 pt-4">
                 {levelResults.map((result) => {
                   const isProfit = result.profit >= 0;
                   const heightPercent =

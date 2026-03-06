@@ -57,6 +57,10 @@ export function CountUpAnimation({
   const animationRef = useRef<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const startValueRef = useRef(start);
+  const displayValueRef = useRef(start);
+
+  // Keep the ref in sync with state so the effect can read it without a dependency
+  displayValueRef.current = displayValue;
 
   const formatNumber = useCallback(
     (value: number): string => {
@@ -70,8 +74,15 @@ export function CountUpAnimation({
   );
 
   useEffect(() => {
+    // Skip animation entirely when the user prefers reduced motion
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) {
+      setDisplayValue(target);
+      return;
+    }
+
     // Reset animation when target changes
-    startValueRef.current = displayValue;
+    startValueRef.current = displayValueRef.current;
     startTimeRef.current = null;
 
     const animate = (currentTime: number) => {
@@ -104,11 +115,17 @@ export function CountUpAnimation({
     };
   }, [target, duration]);
 
+  // Screen readers get the final value immediately via sr-only text
+  const finalText = `${prefix}${formatNumber(target)}${suffix}`;
+
   return (
-    <span className={cn("tabular-nums", className)}>
-      {prefix}
-      {formatNumber(displayValue)}
-      {suffix}
+    <span className={cn("tabular-nums", className)} aria-label={finalText}>
+      <span aria-hidden="true">
+        {prefix}
+        {formatNumber(displayValue)}
+        {suffix}
+      </span>
+      <span className="sr-only">{finalText}</span>
     </span>
   );
 }
@@ -174,10 +191,16 @@ export function AnimatedProgressBar({
         "h-3 w-full rounded-full bg-muted overflow-hidden",
         className
       )}
+      role="progressbar"
+      aria-valuenow={Math.round(value)}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label={`${Math.round(value)}% progress`}
     >
       <div
         className={cn("h-full rounded-full transition-all", colorClass)}
         style={{ width: `${displayValue}%` }}
+        aria-hidden="true"
       />
     </div>
   );

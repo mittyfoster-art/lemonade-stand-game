@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
 """
-Features MCP Server
+Features MCP Server v2.0
 Provides tools for managing the feature tracking database.
-Used by the autonomous coding agents to coordinate feature implementation.
+Used by the autonomous coding agents to coordinate feature implementation
+for the Lemonade Stand Business Simulation v2.0.
 """
 
 import sqlite3
 import json
 import random
+import time
 from datetime import datetime
 from pathlib import Path
 
 # Database path
 DB_PATH = Path(__file__).parent / "features.db"
 
+# Stale threshold: features stuck in_progress for more than 30 minutes
+STALE_THRESHOLD_SECONDS = 30 * 60
+
+
 def get_db():
     """Get database connection with row factory."""
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
 
 def init_db():
     """Initialize the database with schema."""
@@ -31,12 +38,13 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 # ============== MCP Tool Functions ==============
 
 def get_stats():
     """
     Get current feature statistics.
-    Returns counts of features by status.
+    Returns counts of features by status and overall progress percentage.
     """
     conn = get_db()
     cursor = conn.execute("SELECT * FROM feature_stats")
@@ -44,16 +52,19 @@ def get_stats():
     conn.close()
 
     if row:
+        total = row["total"] or 0
+        completed = row["completed"] or 0
         return {
-            "total": row["total"],
-            "pending": row["pending"],
-            "in_progress": row["in_progress"],
-            "completed": row["completed"],
-            "failed": row["failed"],
-            "blocked": row["blocked"],
-            "percent_complete": round(100 * row["completed"] / row["total"], 1) if row["total"] > 0 else 0
+            "total": total,
+            "pending": row["pending"] or 0,
+            "in_progress": row["in_progress"] or 0,
+            "completed": completed,
+            "failed": row["failed"] or 0,
+            "blocked": row["blocked"] or 0,
+            "percent_complete": round(100 * completed / total, 1) if total > 0 else 0
         }
-    return {"total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0}
+    return {"total": 0, "pending": 0, "in_progress": 0, "completed": 0, "failed": 0, "blocked": 0, "percent_complete": 0}
+
 
 def get_category_stats():
     """
@@ -67,21 +78,63 @@ def get_category_stats():
 
     return [dict(row) for row in rows]
 
+
+def _reset_stale_features(conn):
+    """
+    Reset features stuck in in_progress state for longer than STALE_THRESHOLD_SECONDS.
+    Returns the number of features reset.
+    """
+    now = int(datetime.now().timestamp())
+    threshold = now - STALE_THRESHOLD_SECONDS
+
+    cursor = conn.execute("""
+        SELECT id, title FROM features
+        WHERE status = 'in_progress'
+        AND updated_at < ?
+    """, (threshold,))
+    stale = cursor.fetchall()
+
+    if stale:
+        for row in stale:
+            conn.execute("""
+                UPDATE features
+                SET status = 'pending',
+                    updated_at = ?,
+                    notes = notes || ?
+                WHERE id = ?
+            """, (
+                now,
+                f"\n[{datetime.now().isoformat()}] [STALE] Auto-reset from in_progress after {STALE_THRESHOLD_SECONDS // 60}min timeout",
+                row["id"]
+            ))
+        conn.commit()
+
+    return len(stale)
+
+
 def get_next_feature():
     """
     Get the next feature to implement.
     Returns the highest priority pending feature whose dependencies are met.
+    Skips features where retry_count >= max_retries.
+    Also detects and resets stale in_progress features.
     """
     conn = get_db()
+
+    # First, reset any stale features
+    stale_count = _reset_stale_features(conn)
+    if stale_count > 0:
+        print(f"[INFO] Reset {stale_count} stale in_progress feature(s)")
 
     # Get all completed feature IDs
     cursor = conn.execute("SELECT id FROM features WHERE status = 'completed'")
     completed_ids = set(row["id"] for row in cursor.fetchall())
 
-    # Get pending features ordered by priority
+    # Get pending features ordered by priority, skipping exhausted retries
     cursor = conn.execute("""
         SELECT * FROM features
         WHERE status = 'pending'
+        AND retry_count < max_retries
         ORDER BY priority ASC, created_at ASC
     """)
 
@@ -100,11 +153,14 @@ def get_next_feature():
                 "files": json.loads(row["files"]),
                 "acceptance_criteria": json.loads(row["acceptance_criteria"]),
                 "status": row["status"],
-                "notes": row["notes"]
+                "notes": row["notes"],
+                "retry_count": row["retry_count"],
+                "max_retries": row["max_retries"]
             }
 
     conn.close()
     return None  # No features available
+
 
 def get_regression_features(count: int = 3):
     """
@@ -128,8 +184,10 @@ def get_regression_features(count: int = 3):
         "description": row["description"],
         "files": json.loads(row["files"]),
         "acceptance_criteria": json.loads(row["acceptance_criteria"]),
-        "regression_count": row["regression_count"]
+        "regression_count": row["regression_count"],
+        "last_regression_result": row["last_regression_result"]
     } for row in rows]
+
 
 def add_feature(
     id: str,
@@ -139,15 +197,16 @@ def add_feature(
     category: str = "GENERAL",
     dependencies: list = None,
     files: list = None,
-    acceptance_criteria: list = None
+    acceptance_criteria: list = None,
+    test_command: str = ""
 ):
     """
     Add a new feature to the database.
     """
     conn = get_db()
     conn.execute("""
-        INSERT INTO features (id, title, description, priority, category, dependencies, files, acceptance_criteria)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO features (id, title, description, priority, category, dependencies, files, acceptance_criteria, test_command)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         id,
         title,
@@ -156,34 +215,70 @@ def add_feature(
         category,
         json.dumps(dependencies or []),
         json.dumps(files or []),
-        json.dumps(acceptance_criteria or [])
+        json.dumps(acceptance_criteria or []),
+        test_command
     ))
     conn.commit()
     conn.close()
     return {"success": True, "id": id}
 
+
 def update_feature_status(
     id: str,
     status: str,
     notes: str = "",
-    implemented_by: str = ""
+    implemented_by: str = "",
+    error_log: str = ""
 ):
     """
     Update a feature's status.
     Status can be: pending, in_progress, completed, failed, blocked
+
+    On failure:
+    - Increments retry_count
+    - Appends to error_log
+    - If retry_count reaches max_retries, adds a note about exhausted retries
     """
     valid_statuses = ["pending", "in_progress", "completed", "failed", "blocked"]
     if status not in valid_statuses:
         return {"success": False, "error": f"Invalid status. Must be one of: {valid_statuses}"}
 
     conn = get_db()
+    now = int(datetime.now().timestamp())
+    timestamp_str = datetime.now().isoformat()
 
-    updates = ["status = ?", "updated_at = ?", "notes = notes || ?"]
-    params = [status, int(datetime.now().timestamp()), f"\n[{datetime.now().isoformat()}] {notes}" if notes else ""]
+    updates = ["status = ?", "updated_at = ?"]
+    params = [status, now]
 
+    # Build combined notes string (avoid duplicate SET clauses for same column)
+    combined_notes = ""
+    if notes:
+        combined_notes += f"\n[{timestamp_str}] {notes}"
+
+    # Handle failure: increment retry_count and append error_log
+    if status == "failed":
+        updates.append("retry_count = retry_count + 1")
+        if error_log:
+            updates.append("error_log = error_log || ?")
+            params.append(f"\n[{timestamp_str}] {error_log}")
+
+        # Check if this failure exhausts retries
+        cursor = conn.execute("SELECT retry_count, max_retries FROM features WHERE id = ?", (id,))
+        row = cursor.fetchone()
+        if row and (row["retry_count"] + 1) >= row["max_retries"]:
+            combined_notes += f"\n[{timestamp_str}] [MAX_RETRIES] Feature has reached maximum retry limit ({row['max_retries']}). Skipping in future runs."
+
+    # Append all accumulated notes in a single SET clause
+    if combined_notes:
+        updates.append("notes = notes || ?")
+        params.append(combined_notes)
+
+    # Handle completion: record implementer and timestamp
     if status == "completed" and implemented_by:
-        updates.extend(["implemented_by = ?", "implemented_at = ?"])
-        params.extend([implemented_by, int(datetime.now().timestamp())])
+        updates.append("implemented_by = ?")
+        params.append(implemented_by)
+        updates.append("implemented_at = ?")
+        params.append(now)
 
     params.append(id)
 
@@ -197,22 +292,52 @@ def update_feature_status(
 
     return {"success": True, "id": id, "status": status}
 
-def mark_regression_tested(id: str):
+
+def mark_regression_tested(id: str, result: str = "pass"):
     """
-    Mark a feature as regression tested.
+    Mark a feature as regression tested with a pass/fail result.
     Increments the regression count and updates timestamp.
+
+    If result is 'fail', the feature is set back to in_progress so it can be fixed.
     """
+    valid_results = ["pass", "fail"]
+    if result not in valid_results:
+        return {"success": False, "error": f"Invalid result. Must be one of: {valid_results}"}
+
     conn = get_db()
-    conn.execute("""
-        UPDATE features
-        SET regression_count = regression_count + 1,
-            last_regression_at = ?,
-            updated_at = ?
-        WHERE id = ?
-    """, (int(datetime.now().timestamp()), int(datetime.now().timestamp()), id))
+    now = int(datetime.now().timestamp())
+    timestamp_str = datetime.now().isoformat()
+
+    if result == "pass":
+        conn.execute("""
+            UPDATE features
+            SET regression_count = regression_count + 1,
+                last_regression_at = ?,
+                last_regression_result = 'pass',
+                updated_at = ?
+            WHERE id = ?
+        """, (now, now, id))
+    else:
+        # Regression failure: set back to in_progress for fixing
+        conn.execute("""
+            UPDATE features
+            SET regression_count = regression_count + 1,
+                last_regression_at = ?,
+                last_regression_result = 'fail',
+                status = 'in_progress',
+                updated_at = ?,
+                notes = notes || ?
+            WHERE id = ?
+        """, (
+            now, now,
+            f"\n[{timestamp_str}] [REGRESSION] Failed regression test - set back to in_progress for fixing",
+            id
+        ))
+
     conn.commit()
     conn.close()
-    return {"success": True, "id": id}
+    return {"success": True, "id": id, "result": result}
+
 
 def get_feature(id: str):
     """
@@ -237,9 +362,15 @@ def get_feature(id: str):
             "notes": row["notes"],
             "implemented_by": row["implemented_by"],
             "implemented_at": row["implemented_at"],
-            "regression_count": row["regression_count"]
+            "regression_count": row["regression_count"],
+            "last_regression_result": row["last_regression_result"],
+            "retry_count": row["retry_count"],
+            "max_retries": row["max_retries"],
+            "error_log": row["error_log"],
+            "test_command": row["test_command"]
         }
     return None
+
 
 def list_features(status: str = None, category: str = None):
     """
@@ -247,7 +378,7 @@ def list_features(status: str = None, category: str = None):
     """
     conn = get_db()
 
-    query = "SELECT id, title, status, priority, category FROM features WHERE 1=1"
+    query = "SELECT id, title, status, priority, category, retry_count FROM features WHERE 1=1"
     params = []
 
     if status:
@@ -264,6 +395,7 @@ def list_features(status: str = None, category: str = None):
     conn.close()
 
     return [dict(row) for row in rows]
+
 
 def get_blocked_features():
     """
@@ -293,6 +425,57 @@ def get_blocked_features():
     conn.close()
     return blocked
 
+
+def reset_db():
+    """
+    Reset the database by deleting the existing DB file and re-initializing from schema.
+    WARNING: This destroys all existing data.
+    """
+    import os
+    if DB_PATH.exists():
+        os.remove(str(DB_PATH))
+    init_db()
+    return {"success": True, "message": "Database reset and re-initialized from schema"}
+
+
+def log_agent_activity(agent_id: str, action: str, feature_id: str = None, details: str = ""):
+    """
+    Log an agent activity to the agent_log table.
+    Useful for tracking what agents do over time.
+    """
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO agent_log (agent_id, action, feature_id, details)
+        VALUES (?, ?, ?, ?)
+    """, (agent_id, action, feature_id, details))
+    conn.commit()
+    conn.close()
+    return {"success": True, "agent_id": agent_id, "action": action}
+
+
+def get_agent_log(limit: int = 20):
+    """
+    Get recent agent activity log entries.
+    """
+    conn = get_db()
+    cursor = conn.execute("""
+        SELECT * FROM agent_log
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    return [{
+        "id": row["id"],
+        "agent_id": row["agent_id"],
+        "action": row["action"],
+        "feature_id": row["feature_id"],
+        "details": row["details"],
+        "timestamp": row["timestamp"]
+    } for row in rows]
+
+
 # ============== CLI for Testing ==============
 
 if __name__ == "__main__":
@@ -303,25 +486,97 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 2:
         print("Usage: python features_mcp.py <command> [args]")
-        print("Commands: stats, next, regression, list, add, update")
+        print("")
+        print("Commands:")
+        print("  stats                           Show feature statistics")
+        print("  category-stats                  Show stats by category")
+        print("  next                            Get next feature to implement")
+        print("  regression [count]              Get random completed features for regression testing")
+        print("  list [status] [category]        List features with optional filters")
+        print("  get <id>                        Get a specific feature by ID")
+        print("  blocked                         Show blocked features")
+        print("  update <id> <status> [notes]    Update feature status")
+        print("  mark-regression <id> <result>   Mark regression test result (pass/fail)")
+        print("  reset                           Reset database (WARNING: destroys data)")
+        print("  log [agent_id] [action] [feature_id] [details]  Log agent activity")
+        print("  log-show [limit]                Show recent agent log entries")
         sys.exit(1)
 
     command = sys.argv[1]
 
     if command == "stats":
         print(json.dumps(get_stats(), indent=2))
+
     elif command == "category-stats":
         print(json.dumps(get_category_stats(), indent=2))
+
     elif command == "next":
         feature = get_next_feature()
         print(json.dumps(feature, indent=2) if feature else "No features available")
+
     elif command == "regression":
-        features = get_regression_features()
+        count = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+        features = get_regression_features(count)
         print(json.dumps(features, indent=2))
+
     elif command == "list":
         status = sys.argv[2] if len(sys.argv) > 2 else None
-        print(json.dumps(list_features(status=status), indent=2))
+        category = sys.argv[3] if len(sys.argv) > 3 else None
+        print(json.dumps(list_features(status=status, category=category), indent=2))
+
+    elif command == "get":
+        if len(sys.argv) < 3:
+            print("Usage: python features_mcp.py get <id>")
+            sys.exit(1)
+        feature = get_feature(sys.argv[2])
+        print(json.dumps(feature, indent=2) if feature else f"Feature '{sys.argv[2]}' not found")
+
     elif command == "blocked":
         print(json.dumps(get_blocked_features(), indent=2))
+
+    elif command == "update":
+        if len(sys.argv) < 4:
+            print("Usage: python features_mcp.py update <id> <status> [notes]")
+            sys.exit(1)
+        feature_id = sys.argv[2]
+        status = sys.argv[3]
+        notes = sys.argv[4] if len(sys.argv) > 4 else ""
+        result = update_feature_status(feature_id, status, notes=notes)
+        print(json.dumps(result, indent=2))
+
+    elif command == "mark-regression":
+        if len(sys.argv) < 4:
+            print("Usage: python features_mcp.py mark-regression <id> <pass|fail>")
+            sys.exit(1)
+        feature_id = sys.argv[2]
+        result = sys.argv[3]
+        outcome = mark_regression_tested(feature_id, result)
+        print(json.dumps(outcome, indent=2))
+
+    elif command == "reset":
+        confirm = input("WARNING: This will delete all feature data. Type 'yes' to confirm: ") if sys.stdin.isatty() else "yes"
+        if confirm.strip().lower() == "yes":
+            result = reset_db()
+            print(json.dumps(result, indent=2))
+        else:
+            print("Reset cancelled.")
+
+    elif command == "log":
+        if len(sys.argv) < 4:
+            print("Usage: python features_mcp.py log <agent_id> <action> [feature_id] [details]")
+            sys.exit(1)
+        agent_id = sys.argv[2]
+        action = sys.argv[3]
+        feature_id = sys.argv[4] if len(sys.argv) > 4 else None
+        details = sys.argv[5] if len(sys.argv) > 5 else ""
+        result = log_agent_activity(agent_id, action, feature_id, details)
+        print(json.dumps(result, indent=2))
+
+    elif command == "log-show":
+        limit = int(sys.argv[2]) if len(sys.argv) > 2 else 20
+        entries = get_agent_log(limit)
+        print(json.dumps(entries, indent=2))
+
     else:
         print(f"Unknown command: {command}")
+        print("Run without arguments to see usage.")

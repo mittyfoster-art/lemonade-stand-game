@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useGameStore } from '@/store/game-store'
 import { Loader2, AlertCircle, Citrus, User, Hash } from 'lucide-react'
+import { validatePlayerName, validateRoomCode } from '@/lib/validation'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -16,12 +17,6 @@ const MAX_NAME_LENGTH = 20
 
 /** Minimum number of characters required for a player's display name */
 const MIN_NAME_LENGTH = 1
-
-/**
- * Room code format: AdjectiveNoun + 4 digits (e.g. "CoolLemons4821").
- * Must start with a letter and end with digits, 8-20 characters total.
- */
-const ROOM_CODE_PATTERN = /^[A-Za-z]{6,}[0-9]{4}$/
 
 // ---------------------------------------------------------------------------
 // Props
@@ -105,22 +100,16 @@ export function PlayerJoinForm({ onFacilitatorClick }: PlayerJoinFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    // -- Client-side validation --
-    if (trimmedName.length < MIN_NAME_LENGTH) {
-      setErrorMessage('Please enter your name to join the game.')
+    // -- Client-side validation via Zod schemas --
+    const nameResult = validatePlayerName(trimmedName)
+    if (!nameResult.success) {
+      setErrorMessage(nameResult.error)
       return
     }
 
-    if (trimmedCode.length === 0) {
-      setErrorMessage('Please enter the room code your facilitator shared.')
-      return
-    }
-
-    // Validate room code format before hitting the backend
-    if (!ROOM_CODE_PATTERN.test(trimmedCode)) {
-      setErrorMessage(
-        'Invalid room code format. It should look like "CoolLemons4821" (letters followed by 4 digits).'
-      )
+    const codeResult = validateRoomCode(trimmedCode)
+    if (!codeResult.success) {
+      setErrorMessage(codeResult.error)
       return
     }
 
@@ -198,6 +187,7 @@ export function PlayerJoinForm({ onFacilitatorClick }: PlayerJoinFormProps) {
               disabled={isJoining}
               autoComplete="off"
               autoFocus
+              aria-describedby={errorMessage ? "join-form-error" : undefined}
               className="border-amber-300 focus-visible:ring-amber-400 placeholder:text-amber-400"
             />
             <p className="text-xs text-amber-600">
@@ -223,6 +213,7 @@ export function PlayerJoinForm({ onFacilitatorClick }: PlayerJoinFormProps) {
               placeholder="e.g. CoolLemons4821"
               disabled={isJoining}
               autoComplete="off"
+              aria-describedby={errorMessage ? "join-form-error" : undefined}
               className="border-amber-300 focus-visible:ring-amber-400 placeholder:text-amber-400 font-mono"
             />
             <p className="text-xs text-amber-600">
@@ -230,9 +221,11 @@ export function PlayerJoinForm({ onFacilitatorClick }: PlayerJoinFormProps) {
             </p>
           </div>
 
-          {/* ---- Error message ---- */}
+          {/* ---- Error message (linked to inputs via aria-describedby) ---- */}
           {errorMessage && (
             <Alert
+              id="join-form-error"
+              role="alert"
               variant="destructive"
               className="border-red-300 bg-red-50 text-red-800"
             >

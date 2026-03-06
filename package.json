@@ -1,7 +1,10 @@
 {
-  "name": "vite-project",
+  "name": "lemonade-stand-game",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
+  "description": "Lemonade Stand Business Simulation for the CICBD TeenPreneurship Camp 2026",
+  "author": "CICBD",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -40,6 +43,7 @@
     "@radix-ui/react-toggle": "^1.1.6",
     "@radix-ui/react-toggle-group": "^1.1.7",
     "@radix-ui/react-tooltip": "^1.2.4",
+    "@sentry/react": "^10.42.0",
     "@supabase/supabase-js": "^2.95.3",
     "@tanstack/react-table": "^8.21.3",
     "class-variance-authority": "^0.7.1",

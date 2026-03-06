@@ -12,6 +12,7 @@
  * Route: /leaderboard
  */
 
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Trophy,
@@ -23,6 +24,7 @@ import {
   DollarSign,
   TrendingUp,
   Layers,
+  RefreshCw,
 } from "lucide-react";
 import {
   Card,
@@ -86,6 +88,32 @@ export default function LeaderboardPage() {
   const currentGameRoom = useGameStore((s) => s.currentGameRoom);
   const currentPlayer = useGameStore((s) => s.currentPlayer);
   const getLeaderboard = useGameStore((s) => s.getLeaderboard);
+  const refreshCurrentRoom = useGameStore((s) => s.refreshCurrentRoom);
+  const subscribeToRoom = useGameStore((s) => s.subscribeToRoom);
+  const realtimeStatus = useGameStore((s) => s.realtimeStatus);
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Fetch fresh room data from Supabase on mount
+  useEffect(() => {
+    if (!currentGameRoom) return;
+    let cancelled = false;
+    setIsRefreshing(true);
+    refreshCurrentRoom()
+      .catch((err: unknown) => {
+        if (!cancelled) console.warn("Failed to refresh room data:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsRefreshing(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentGameRoom, refreshCurrentRoom]);
+
+  // Ensure real-time subscription is active on mount
+  useEffect(() => {
+    if (!currentGameRoom) return;
+    subscribeToRoom();
+  }, [currentGameRoom, subscribeToRoom]);
 
   // No room joined: prompt user to join one
   if (!currentGameRoom) {
@@ -132,6 +160,30 @@ export default function LeaderboardPage() {
             Your rank: #{entries.find((e) => e.player.id === currentPlayer.id)?.rank ?? "?"}
           </Badge>
         )}
+        {isRefreshing && (
+          <Badge variant="outline" className="gap-1 text-muted-foreground animate-pulse">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Syncing...
+          </Badge>
+        )}
+        {realtimeStatus === "connected" && (
+          <Badge variant="outline" className="gap-1 text-emerald-600 border-emerald-200">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            Live
+          </Badge>
+        )}
+        {realtimeStatus === "reconnecting" && (
+          <Badge variant="outline" className="gap-1 text-amber-600 border-amber-200">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Reconnecting...
+          </Badge>
+        )}
+        {realtimeStatus === "disconnected" && !isRefreshing && (
+          <Badge variant="outline" className="gap-1 text-muted-foreground">
+            <span className="h-2 w-2 rounded-full bg-gray-400" />
+            Offline
+          </Badge>
+        )}
       </div>
 
       {/* Empty state */}
@@ -151,7 +203,7 @@ export default function LeaderboardPage() {
         <>
           {/* Top 3 podium cards (shown only when 3+ players exist) */}
           {entries.length >= 3 && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {entries.slice(0, 3).map((entry) => {
                 const isCurrentPlayer = currentPlayer?.id === entry.player.id;
                 const podiumColors = [

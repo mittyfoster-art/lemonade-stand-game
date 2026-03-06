@@ -42,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useGameStore } from "@/store/game-store";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
   formatBudget,
   getBudgetColorClass,
@@ -75,9 +76,14 @@ export default function ResultsPage() {
     return currentPlayer.levelResults[currentPlayer.levelResults.length - 1];
   }, [currentPlayer]);
 
-  // Guard: nothing to render until data is available
+  // Guard: show loading state until data is available
   if (!currentPlayer || !lastSimulationResult || !levelResult) {
-    return null;
+    return (
+      <LoadingSpinner
+        message="Loading results..."
+        submessage="Calculating your performance"
+      />
+    );
   }
 
   const {
@@ -442,7 +448,7 @@ export default function ResultsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
             <div className="rounded-lg bg-emerald-50 p-3">
               <DollarSign className="mx-auto mb-1 h-4 w-4 text-emerald-600" />
               <p className="text-xs text-muted-foreground">Price</p>

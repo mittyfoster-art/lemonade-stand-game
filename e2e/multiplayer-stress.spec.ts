@@ -195,20 +195,6 @@ async function playLevel(page: Page, playerName: string): Promise<TimedResult<bo
   })
 }
 
-/**
- * Get player names from the leaderboard page.
- */
-async function getLeaderboardPlayers(page: Page): Promise<string[]> {
-  await page.goto('/leaderboard')
-  await page.waitForLoadState('networkidle')
-
-  // Wait for leaderboard to load
-  await page.waitForTimeout(1000)
-
-  // Get all text content and extract player names
-  const content = await page.textContent('body')
-  return content ? content.split('\n').filter(line => line.includes('Player')) : []
-}
 
 // ============================================================================
 // Test Suite
@@ -216,7 +202,7 @@ async function getLeaderboardPlayers(page: Page): Promise<string[]> {
 
 test.describe('Multi-Player Stress Test', () => {
   let browser: Browser
-  let sessions: PlayerSession[] = []
+  const sessions: PlayerSession[] = []
 
   test.beforeAll(async () => {
     browser = await chromium.launch({ headless: true })

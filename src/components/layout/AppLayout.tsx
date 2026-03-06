@@ -18,6 +18,14 @@ import BottomNav from "@/components/layout/BottomNav";
 export default function AppLayout() {
   return (
     <div className="min-h-screen bg-background">
+      {/* Skip-to-content link for keyboard / screen-reader users */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
+
       {/* Desktop sidebar - hidden on mobile, visible on lg+ */}
       <DesktopSidebar />
 
@@ -26,6 +34,7 @@ export default function AppLayout() {
 
       {/* Main content area */}
       <main
+        id="main-content"
         className={[
           // On mobile: offset for fixed header (h-14) at top and bottom nav (h-16) at bottom
           "pt-14 pb-16",

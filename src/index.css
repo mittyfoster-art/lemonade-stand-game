@@ -128,3 +128,36 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ====================================================================
+ * Mobile-friendly slider styles (UI-003)
+ * Ensures touch targets meet the 44x44px minimum for accessibility.
+ * ==================================================================== */
+@layer components {
+  input[type="range"] {
+    @apply h-3 cursor-pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    @apply w-6 h-6;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+}
+
+/* ====================================================================
+ * Reduced Motion Accessibility
+ * Respects the user's OS-level "reduce motion" preference by
+ * disabling or minimising animations and transitions globally.
+ * ==================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

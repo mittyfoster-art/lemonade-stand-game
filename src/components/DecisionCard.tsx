@@ -52,6 +52,8 @@ export function DecisionCard({
             max={max}
             step={step}
             className="w-full"
+            aria-label={title}
+            aria-valuetext={formatValue(value)}
           />
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{formatValue(min)}</span>
