@@ -251,7 +251,7 @@ export default function HowToPlayPage() {
               </Card>
               <Card>
                 <CardContent className="pt-4 pb-4 text-center">
-                  <p className="text-2xl font-bold text-amber-600">$20</p>
+                  <p className="text-2xl font-bold text-amber-600">$15</p>
                   <p className="text-xs text-muted-foreground">
                     Fixed costs per level
                   </p>
@@ -268,7 +268,7 @@ export default function HowToPlayPage() {
             <div className="text-sm text-muted-foreground space-y-2">
               <p>
                 Every player starts with <strong>$500</strong>. Each level, you
-                pay <strong>$20 in fixed costs</strong> (stand setup, permits,
+                pay <strong>$15 in fixed costs</strong> (stand setup, permits,
                 and basic supplies) before anything else happens.
               </p>
               <p>
@@ -282,8 +282,8 @@ export default function HowToPlayPage() {
               <ShieldAlert className="h-4 w-4" />
               <AlertDescription>
                 If your budget falls below <strong>$20</strong> at the end of a
-                level, your business closes permanently. You cannot afford the
-                fixed costs to continue operating. Choose your decisions
+                level, your business closes permanently — you no longer have
+                enough working capital to keep operating. Choose your decisions
                 carefully to avoid going bankrupt!
               </AlertDescription>
             </Alert>
@@ -301,7 +301,7 @@ export default function HowToPlayPage() {
           <AccordionContent className="space-y-3 pt-2">
             <p className="text-sm text-muted-foreground mb-3">
               New levels unlock each camp day at{" "}
-              <strong className="text-foreground">7:00 AM</strong>. You can
+              <strong className="text-foreground">8:30 AM</strong>. You can
               always go back and play levels from previous days if you have not
               finished them.
             </p>
@@ -426,7 +426,7 @@ export default function HowToPlayPage() {
                 <div className="space-y-1 text-sm font-mono text-foreground">
                   <p>Revenue = Cups Sold x Price Per Cup</p>
                   <p>
-                    Costs = $20 fixed + Marketing + (Cups Sold x Ingredient
+                    Costs = $15 fixed + Marketing + (Cups Sold x Ingredient
                     Cost)
                   </p>
                   <p>Net Profit = Revenue - Costs</p>

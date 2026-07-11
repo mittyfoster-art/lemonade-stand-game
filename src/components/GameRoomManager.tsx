@@ -322,7 +322,7 @@ export const GameRoomManager: React.FC = () => {
                     className="border-amber-300 focus-visible:ring-amber-400"
                   />
                   <p className="text-xs text-amber-600">
-                    Levels 1-10 unlock on this date at 7:00 AM, then 10 more
+                    Levels 1-10 unlock on this date at 8:30 AM, then 10 more
                     each following day. Default is set 5 days back so all 50
                     levels are open for testing.
                   </p>

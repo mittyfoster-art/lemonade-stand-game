@@ -162,9 +162,9 @@ describe('calculateDemand', () => {
   })
 
   it('caps marketing to available budget after fixed costs', () => {
-    // Budget of 25 means only $5 available for marketing after $20 fixed costs
+    // Budget of FIXED_COSTS_PER_LEVEL + 5 leaves only $5 available for marketing
     const decision = makeDecision({ marketing: 30 })
-    const { actualMarketing } = calculateDemand(decision, 25, scenario)
+    const { actualMarketing } = calculateDemand(decision, FIXED_COSTS_PER_LEVEL + 5, scenario)
     expect(actualMarketing).toBe(5)
   })
 
@@ -200,17 +200,16 @@ describe('calculateFinancials', () => {
 
   it('calculates costs = fixed + marketing + variable', () => {
     // 50 cups, quality 1 ($0.10/cup), $10 marketing
-    // costs = 20 + 10 + (50 * 0.10) = 35
+    // costs = FIXED_COSTS_PER_LEVEL + 10 + (50 * 0.10)
     const { costs } = calculateFinancials(50, 1.0, 1, 10)
-    expect(costs).toBe(35.0)
+    expect(costs).toBe(FIXED_COSTS_PER_LEVEL + 10 + 50 * 0.10)
   })
 
   it('calculates profit = revenue - costs', () => {
     // 50 cups at $1.50 = $75 revenue
-    // costs = 20 + 10 + (50 * 0.10) = $35
-    // profit = 75 - 35 = $40
+    // costs = FIXED_COSTS_PER_LEVEL + 10 + (50 * 0.10)
     const { profit } = calculateFinancials(50, 1.50, 1, 10)
-    expect(profit).toBe(40.0)
+    expect(profit).toBe(75 - (FIXED_COSTS_PER_LEVEL + 10 + 50 * 0.10))
   })
 
   it('applies quality multipliers correctly', () => {
@@ -225,9 +224,9 @@ describe('calculateFinancials', () => {
   })
 
   it('returns negative profit when costs exceed revenue', () => {
-    // 0 cups sold, $10 marketing → revenue = 0, costs = 20 + 10 = 30
+    // 0 cups sold, $10 marketing → revenue = 0, costs = fixed + 10
     const { profit } = calculateFinancials(0, 1.0, 3, 10)
-    expect(profit).toBe(-30.0)
+    expect(profit).toBe(-(FIXED_COSTS_PER_LEVEL + 10))
   })
 
   it('handles zero cups sold', () => {
@@ -337,9 +336,11 @@ describe('edge cases', () => {
   })
 
   it('constants are correct', () => {
-    expect(BASE_DEMAND).toBe(50)
+    // Rebalanced after the 2026-06-10 pilot: BASE_DEMAND 50 → 70 and
+    // FIXED_COSTS_PER_LEVEL 20 → 15 so every level is winnable with optimal play.
+    expect(BASE_DEMAND).toBe(70)
     expect(MAX_CAPACITY).toBe(150)
-    expect(FIXED_COSTS_PER_LEVEL).toBe(20)
+    expect(FIXED_COSTS_PER_LEVEL).toBe(15)
     expect(BASE_INGREDIENT_COST).toBe(0.10)
   })
 })

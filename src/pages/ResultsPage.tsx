@@ -90,6 +90,7 @@ export default function ResultsPage() {
     level: completedLevel,
     scenario: scenarioTitle,
     decisions,
+    actualMarketingSpent,
     cupsSold,
     revenue,
     costs,
@@ -469,6 +470,13 @@ export default function ResultsPage() {
               <p className="text-lg font-bold text-blue-700">
                 ${decisions.marketing}
               </p>
+              {actualMarketingSpent != null &&
+                actualMarketingSpent < decisions.marketing && (
+                  <p className="text-xs text-amber-700 mt-1">
+                    Capped to ${actualMarketingSpent} — your budget could not
+                    cover the full amount after fixed costs.
+                  </p>
+                )}
             </div>
           </div>
         </CardContent>

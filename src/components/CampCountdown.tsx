@@ -3,7 +3,7 @@
  * to the next day's level unlock.
  *
  * Camp runs for 5 days, each with a named theme. Levels 1-10 unlock on
- * Day 1 at 7:00 AM, 11-20 on Day 2, etc.
+ * Day 1 at 8:30 AM, 11-20 on Day 2, etc.
  *
  * Displayed in the sidebar between navigation items and the player status section.
  */
@@ -29,7 +29,10 @@ const DAY_THEMES: readonly string[] = [
 const LEVELS_PER_DAY = 10;
 
 /** Hour (24h) when new levels unlock. */
-const UNLOCK_HOUR = 7;
+const UNLOCK_HOUR = 8;
+
+/** Minute within UNLOCK_HOUR when new levels unlock (8:30 AM). */
+const UNLOCK_MINUTE = 30;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,23 +93,25 @@ function getTimeUntilNextUnlock(
   const start = new Date(campStartDate);
   const now = new Date();
 
-  // The next batch unlocks at the start of the *next* camp day at UNLOCK_HOUR.
-  // If it is before UNLOCK_HOUR on the current day, the "next unlock" is today's batch.
-  const currentHour = now.getHours();
+  // The next batch unlocks at the start of the *next* camp day at 8:30 AM.
+  // If it is before 8:30 AM on the current day, the "next unlock" is today's batch.
+  const pastTodaysUnlock =
+    now.getHours() > UNLOCK_HOUR ||
+    (now.getHours() === UNLOCK_HOUR && now.getMinutes() >= UNLOCK_MINUTE);
 
   // Determine which day's unlock we are waiting for
   let targetDay = campDay;
-  if (currentHour >= UNLOCK_HOUR) {
+  if (pastTodaysUnlock) {
     // Today's levels are already unlocked; wait for next day
     targetDay = campDay + 1;
   }
 
   if (targetDay > 5) return 0; // Camp is finished
 
-  // Target unlock date = campStartDate + (targetDay - 1) days, at UNLOCK_HOUR:00
+  // Target unlock date = campStartDate + (targetDay - 1) days, at 8:30 AM
   const targetDate = new Date(start);
   targetDate.setDate(targetDate.getDate() + (targetDay - 1));
-  targetDate.setHours(UNLOCK_HOUR, 0, 0, 0);
+  targetDate.setHours(UNLOCK_HOUR, UNLOCK_MINUTE, 0, 0);
 
   const remaining = targetDate.getTime() - now.getTime();
   return Math.max(0, remaining);

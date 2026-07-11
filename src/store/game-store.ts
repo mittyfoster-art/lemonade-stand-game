@@ -3,16 +3,22 @@ import { persist } from 'zustand/middleware'
 import { auth, table, supabase } from '@/lib/supabase'
 import { LEVEL_SCENARIOS } from '@/data/scenarios'
 import { validateDecision } from '@/lib/validation'
+import {
+  FIXED_COSTS_PER_LEVEL,
+  MAX_CAPACITY,
+  BASE_DEMAND,
+  BASE_INGREDIENT_COST,
+  QUALITY_MULTIPLIERS,
+} from '@/lib/simulation'
 
 // ============================================================================
 // Constants
 // ============================================================================
+// Economy constants (FIXED_COSTS_PER_LEVEL, BASE_DEMAND, etc.) are single-sourced
+// from '@/lib/simulation' so the engine, the store, and the UI can never drift.
 
 /** Starting budget for every new player */
 const STARTING_BUDGET = 500
-
-/** Fixed costs deducted from the budget at each level (stand setup, permits, supplies) */
-const FIXED_COSTS_PER_LEVEL = 20
 
 /** Minimum budget required to continue playing. Below this threshold the game ends. */
 const MINIMUM_OPERATING_BUDGET = 20
@@ -24,22 +30,13 @@ const MAX_LEVEL = 50
 const LEVELS_PER_DAY = 10
 
 /** Hour of the day (24-hour format) when new levels unlock */
-const UNLOCK_HOUR = 7
+const UNLOCK_HOUR = 8
+
+/** Minute within UNLOCK_HOUR when new levels unlock (8:30 AM) */
+const UNLOCK_MINUTE = 30
 
 /** IANA timezone for the camp location (Cayman Islands, UTC-5, no DST) */
 const CAMP_TIMEZONE = 'America/Cayman'
-
-/** Maximum cups that can be sold in a single level (capacity cap) */
-const MAX_CAPACITY = 150
-
-/** Base demand used in the demand formula before multipliers */
-const BASE_DEMAND = 50
-
-/** Cost of the cheapest possible cup (quality level 1) */
-const BASE_INGREDIENT_COST = 0.10
-
-/** Quality multipliers: index 0 = quality 1 (Basic), index 4 = quality 5 (Gourmet) */
-const QUALITY_MULTIPLIERS: readonly number[] = [1.0, 1.2, 1.5, 2.0, 2.8] as const
 
 // ============================================================================
 // Helpers
@@ -167,6 +164,12 @@ export interface LevelResult {
   scenario: string
   /** The player's decisions for this level */
   decisions: GameDecision
+  /**
+   * Marketing actually spent after the affordability cap.
+   * May be lower than decisions.marketing when the budget could not cover it.
+   * Optional: results recorded before this field existed do not have it.
+   */
+  actualMarketingSpent?: number
   /** Number of cups sold */
   cupsSold: number
   /** Gross revenue earned (cups sold * price) */
@@ -236,6 +239,24 @@ export interface Player {
   isGameOver: boolean
   /** The level at which the game ended, or null if still playing */
   gameOverAtLevel: number | null
+
+  // -- Sync Metadata --
+  /**
+   * Unix timestamp (ms) of this player's last progress-changing action
+   * (level completion, loan accept/decline, reset). Used by the real-time
+   * merge to tell a stale sync echo (older timestamp → keep local) apart
+   * from a genuinely newer remote write (newer timestamp → accept remote).
+   * Optional: players created before this field existed do not have it.
+   */
+  lastProgressAt?: number
+
+  // -- Loan Decline Tracking --
+  /**
+   * Level numbers where the player explicitly declined the loan offer.
+   * Prevents the offer card from re-appearing after a decline.
+   * Optional: players created before this field existed do not have it.
+   */
+  declinedLoanLevels?: number[]
 }
 
 /** Simulation result returned by the business simulation engine */
@@ -248,6 +269,8 @@ export interface SimulationResult {
   costs: number
   /** Net profit (revenue - costs), before loan repayment */
   profit: number
+  /** Marketing actually spent after the affordability cap (may be below the requested amount) */
+  actualMarketing: number
   /** Feedback messages for the player */
   feedback: string[]
 }
@@ -352,7 +375,7 @@ export interface GameState {
   getLevelScenario: (level: number) => LevelScenario
   /**
    * Determine whether a given level is currently unlocked.
-   * Levels 1-10 unlock on camp day 1 at 7AM, 11-20 on day 2, etc.
+   * Levels 1-10 unlock on camp day 1 at 8:30 AM, 11-20 on day 2, etc.
    * Previous days' levels remain accessible.
    */
   isLevelUnlocked: (level: number, campStartDate?: string) => boolean
@@ -364,7 +387,7 @@ export interface GameState {
   // -- Loan actions --
   /** Accept the loan offer for the current level (adds funds to budget) */
   acceptLoan: () => void
-  /** Decline the loan offer for the current level (no-op on budget) */
+  /** Decline the loan offer for the current level (records the decline so the offer stays hidden) */
   declineLoan: () => void
 
   // -- Game lifecycle --
@@ -484,6 +507,8 @@ const createNewPlayer = (id: string, name: string, roomId: string): Player => ({
   levelResults: [],
   isGameOver: false,
   gameOverAtLevel: null,
+  lastProgressAt: Date.now(),
+  declinedLoanLevels: [],
 })
 
 /**
@@ -491,7 +516,7 @@ const createNewPlayer = (id: string, name: string, roomId: string): Player => ({
  * Uses Intl.DateTimeFormat so results are correct regardless of the player's
  * device timezone setting.
  */
-const getCaymanTime = (): { year: number; month: number; day: number; hour: number } => {
+const getCaymanTime = (): { year: number; month: number; day: number; hour: number; minute: number } => {
   const now = new Date()
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: CAMP_TIMEZONE,
@@ -499,6 +524,7 @@ const getCaymanTime = (): { year: number; month: number; day: number; hour: numb
     month: 'numeric',
     day: 'numeric',
     hour: 'numeric',
+    minute: 'numeric',
     hour12: false,
   })
   const parts = formatter.formatToParts(now)
@@ -510,6 +536,7 @@ const getCaymanTime = (): { year: number; month: number; day: number; hour: numb
     month: get('month') - 1, // 0-indexed to match Date.UTC convention
     day: get('day'),
     hour: get('hour'),
+    minute: get('minute'),
   }
 }
 
@@ -541,8 +568,8 @@ const getCampDay = (campStartDate: string): number => {
 /**
  * Determine whether a given level is unlocked based on the camp schedule.
  *
- * Levels 1-10 unlock on camp day 1 at 7:00 AM.
- * Levels 11-20 unlock on camp day 2 at 7:00 AM.
+ * Levels 1-10 unlock on camp day 1 at 8:30 AM.
+ * Levels 11-20 unlock on camp day 2 at 8:30 AM.
  * ...and so on up to levels 41-50 on day 5.
  *
  * Previous days' levels remain accessible (catch-up is allowed).
@@ -560,13 +587,18 @@ const checkLevelUnlocked = (level: number, campStartDate: string): boolean => {
   // The camp day for this level hasn't arrived yet
   if (levelDay > campDay) return false
 
-  // If this is today's batch, check the 7AM gate using Cayman timezone
+  // If this is today's batch, check the 8:30 AM gate using Cayman timezone
   if (levelDay === campDay) {
     const cayman = getCaymanTime()
-    if (cayman.hour < UNLOCK_HOUR) return false
+    if (
+      cayman.hour < UNLOCK_HOUR ||
+      (cayman.hour === UNLOCK_HOUR && cayman.minute < UNLOCK_MINUTE)
+    ) {
+      return false
+    }
   }
 
-  // Level's day has passed, or it's today and past 7AM (Cayman time)
+  // Level's day has passed, or it's today and past 8:30 AM (Cayman time)
   return true
 }
 
@@ -650,6 +682,7 @@ const simulateBusiness = (
     revenue: roundCurrency(revenue),
     costs: roundCurrency(totalCosts),
     profit: roundCurrency(profit),
+    actualMarketing: roundCurrency(actualMarketing),
     feedback,
   }
 }
@@ -983,6 +1016,7 @@ export const useGameStore = create<GameState>()(
             level,
             scenario: scenario.title,
             decisions: { ...freshState.currentDecision },
+            actualMarketingSpent: result.actualMarketing,
             cupsSold: result.cupsSold,
             revenue: result.revenue,
             costs: result.costs,
@@ -1022,6 +1056,7 @@ export const useGameStore = create<GameState>()(
             levelResults: [...freshPlayer.levelResults, levelResult],
             isGameOver,
             gameOverAtLevel: isGameOver ? level : null,
+            lastProgressAt: Date.now(),
           }
 
           // Update the player in the players array
@@ -1091,6 +1126,7 @@ export const useGameStore = create<GameState>()(
           budget: newBudget,
           activeLoan,
           peakBudget: Math.max(currentPlayer.peakBudget, newBudget),
+          lastProgressAt: Date.now(),
         }
 
         const updatedPlayers = players.map(p =>
@@ -1120,8 +1156,49 @@ export const useGameStore = create<GameState>()(
       },
 
       declineLoan: () => {
-        // No-op on state; the player simply does not receive the loan.
-        // This action exists for UI clarity and potential analytics tracking.
+        const { currentPlayer, players, currentGameRoom, availableGameRooms } = get()
+
+        if (!currentPlayer || currentPlayer.isGameOver) return
+
+        const level = currentPlayer.currentLevel
+        const scenario = get().getLevelScenario(level)
+        if (!scenario.loanOffer) return
+
+        // Already declined at this level — nothing to do
+        const declined = currentPlayer.declinedLoanLevels ?? []
+        if (declined.includes(level)) return
+
+        // Record the decline so the offer card stays hidden for this level
+        const updatedPlayer: Player = {
+          ...currentPlayer,
+          declinedLoanLevels: [...declined, level],
+          lastProgressAt: Date.now(),
+        }
+
+        const updatedPlayers = players.map(p =>
+          p.id === updatedPlayer.id ? updatedPlayer : p
+        )
+
+        let updatedCurrentRoom = currentGameRoom
+        let updatedRooms = availableGameRooms
+        if (updatedCurrentRoom) {
+          updatedCurrentRoom = { ...updatedCurrentRoom, players: updatedPlayers }
+          updatedRooms = availableGameRooms.map(room =>
+            room.id === updatedCurrentRoom!.id
+              ? { ...room, players: updatedPlayers }
+              : room
+          )
+        }
+
+        set({
+          currentPlayer: updatedPlayer,
+          players: updatedPlayers,
+          currentGameRoom: updatedCurrentRoom,
+          availableGameRooms: updatedRooms,
+        })
+
+        // Persist the decline so it survives reloads and device switches
+        get().debouncedSync()
       },
 
       // ====================================================================
@@ -1179,10 +1256,13 @@ export const useGameStore = create<GameState>()(
 
         const nextScenario = get().getLevelScenario(nextLevel)
 
+        // Deliberately keep currentDecision: the player's previous choices carry
+        // forward so they iterate on their last strategy. Silently resetting the
+        // sliders to defaults caused players to simulate with values they never
+        // chose (live pilot bug, 2026-06-10).
         set({
           lastSimulationResult: null,
           currentScenario: nextScenario,
-          currentDecision: { price: 1.00, quality: 3, marketing: 10 },
         })
       },
 
@@ -1720,25 +1800,26 @@ export const useGameStore = create<GameState>()(
             const { currentPlayer } = get()
 
             // Merge remote players with local state. For the current player,
-            // detect facilitator resets (level/results regressed) and accept
-            // them, while preserving local state for our own sync echoes.
+            // compare lastProgressAt timestamps: a broadcast triggered by
+            // another player's write carries OUR stale entry (their write only
+            // replaced their own slot), so "remote regressed" does NOT mean a
+            // facilitator reset. Only a strictly newer remote timestamp (a
+            // genuine write from another device or a reset) wins; otherwise
+            // local state stays authoritative. This fixes the live pilot bug
+            // where players were snapped back to a level they had just
+            // completed and lost the result (2026-06-10).
             let updatedCurrentPlayer: Player | null = currentPlayer
             const mergedPlayers = remotePlayers.map((remotePlayer) => {
               if (currentPlayer && remotePlayer.id === currentPlayer.id) {
-                // Detect facilitator reset: remote has fewer completed levels
-                // or lower currentLevel than local — this means data was rolled
-                // back server-side. Accept the remote state.
-                const isReset =
-                  remotePlayer.completedLevels.length < currentPlayer.completedLevels.length ||
-                  remotePlayer.currentLevel < currentPlayer.currentLevel ||
-                  (remotePlayer.isGameOver !== currentPlayer.isGameOver)
+                const remoteProgressAt = remotePlayer.lastProgressAt ?? 0
+                const localProgressAt = currentPlayer.lastProgressAt ?? 0
 
-                if (isReset) {
+                if (remoteProgressAt > localProgressAt) {
                   updatedCurrentPlayer = remotePlayer
                   return remotePlayer
                 }
 
-                // Not a reset — keep local state (authoritative during active play)
+                // Remote is a stale echo of our own state — keep local
                 return currentPlayer
               }
               // For all other players, accept the remote state

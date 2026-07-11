@@ -188,8 +188,9 @@ describe('level play flow', () => {
     expect(useGameStore.getState().lastSimulationResult).toBeNull()
   })
 
-  it('does not simulate when budget is below fixed costs ($20)', () => {
-    setupGameWithPlayer({ budget: 15 })
+  it('does not simulate when budget is below fixed costs', () => {
+    // Budget below FIXED_COSTS_PER_LEVEL ($15) — cannot afford to open
+    setupGameWithPlayer({ budget: 10 })
 
     useGameStore.getState().runSimulation()
     vi.advanceTimersByTime(1500)
@@ -206,6 +207,35 @@ describe('level play flow', () => {
 
     const result = useGameStore.getState().currentPlayer!.levelResults[0]
     expect(result.decisions).toEqual({ price: 0.75, quality: 4, marketing: 15 })
+  })
+
+  it('decision carries forward to the next level instead of resetting', () => {
+    // Regression guard for the 2026-06-10 pilot bug: sliders were silently
+    // reset to defaults on advance, so players simulated values they never chose.
+    setupGameWithPlayer()
+
+    useGameStore.getState().updateDecision({ price: 1.5, quality: 4, marketing: 20 })
+    useGameStore.getState().runSimulation()
+    vi.advanceTimersByTime(1500)
+
+    useGameStore.getState().advanceToNextLevel()
+
+    expect(useGameStore.getState().currentDecision).toEqual({
+      price: 1.5,
+      quality: 4,
+      marketing: 20,
+    })
+  })
+
+  it('records progress timestamp on level completion', () => {
+    setupGameWithPlayer()
+
+    useGameStore.getState().runSimulation()
+    vi.advanceTimersByTime(1500)
+
+    const player = useGameStore.getState().currentPlayer!
+    expect(player.lastProgressAt).toBeTypeOf('number')
+    expect(player.lastProgressAt!).toBeGreaterThan(0)
   })
 })
 
@@ -370,6 +400,55 @@ describe('loan decline', () => {
     expect(useGameStore.getState().currentPlayer!.budget).toBe(budgetBefore)
     expect(useGameStore.getState().currentPlayer!.activeLoan).toBeNull()
   })
+
+  it('declining records the level so the offer stays hidden', () => {
+    setupGameWithPlayer({ currentLevel: 15 })
+
+    useGameStore.getState().declineLoan()
+
+    const player = useGameStore.getState().currentPlayer!
+    expect(player.declinedLoanLevels).toContain(15)
+  })
+
+  it('declining twice at the same level is idempotent', () => {
+    setupGameWithPlayer({ currentLevel: 15 })
+
+    useGameStore.getState().declineLoan()
+    useGameStore.getState().declineLoan()
+
+    const player = useGameStore.getState().currentPlayer!
+    expect(player.declinedLoanLevels).toEqual([15])
+  })
+
+  it('declining at a level with no loan offer is a no-op', () => {
+    // Level 1 has no loan offer
+    setupGameWithPlayer({ currentLevel: 1 })
+
+    useGameStore.getState().declineLoan()
+
+    const player = useGameStore.getState().currentPlayer!
+    expect(player.declinedLoanLevels ?? []).toEqual([])
+  })
+
+  it('declined loan can still be accepted at a later offer level', () => {
+    setupGameWithPlayer({ currentLevel: 15 })
+
+    useGameStore.getState().declineLoan()
+
+    // Move the player to the next offer level (20) and accept there
+    const declined = useGameStore.getState().currentPlayer!
+    const movedPlayer = { ...declined, currentLevel: 20 }
+    useGameStore.setState({
+      currentPlayer: movedPlayer,
+      players: [movedPlayer],
+    })
+
+    useGameStore.getState().acceptLoan()
+
+    const player = useGameStore.getState().currentPlayer!
+    expect(player.activeLoan).not.toBeNull()
+    expect(player.activeLoan!.acceptedAtLevel).toBe(20)
+  })
 })
 
 // ============================================================================
@@ -387,8 +466,8 @@ describe('game over condition', () => {
     vi.advanceTimersByTime(1500)
 
     const player = useGameStore.getState().currentPlayer!
-    // $2.00 price = 0 cups sold, so revenue = 0, costs = 20 (fixed) + 10 (marketing) = 30
-    // profit = -30, new budget = 30 + (-30) = 0 which is < 20 => game over
+    // $2.00 price = 0 cups sold, so revenue = 0, costs = 15 (fixed) + 10 (marketing) = 25
+    // profit = -25, new budget = 30 + (-25) = 5 which is < 20 => game over
     expect(player.isGameOver).toBe(true)
     expect(player.gameOverAtLevel).toBe(1)
   })

@@ -11,14 +11,23 @@ import type { GameDecision, LevelScenario, SimulationResult } from '@/store/game
 // Constants
 // ============================================================================
 
-/** Fixed costs deducted from the budget at each level (stand setup, permits, supplies) */
-export const FIXED_COSTS_PER_LEVEL = 20
+/**
+ * Fixed costs deducted from the budget at each level (stand setup, permits, supplies).
+ * Rebalanced 20 → 15 after the 2026-06-10 pilot: with $20 fixed costs, 7 levels had a
+ * NEGATIVE best-possible profit and 34% of all-optimal-range plays still lost money.
+ */
+export const FIXED_COSTS_PER_LEVEL = 15
 
 /** Maximum cups that can be sold in a single level (capacity cap) */
 export const MAX_CAPACITY = 150
 
-/** Base demand used in the demand formula before multipliers */
-export const BASE_DEMAND = 50
+/**
+ * Base demand used in the demand formula before multipliers.
+ * Rebalanced 50 → 70 after the 2026-06-10 pilot so that every level's best
+ * in-optimal-range play is profitable (verified by brute force across all 50
+ * levels: min $6.60, median ~$44 per level) while wrong market reads still lose money.
+ */
+export const BASE_DEMAND = 70
 
 /** Cost of the cheapest possible cup (quality level 1) */
 export const BASE_INGREDIENT_COST = 0.10
@@ -139,6 +148,7 @@ export function simulateBusiness(
     revenue,
     costs,
     profit,
+    actualMarketing: roundCurrency(actualMarketing),
     feedback: [], // Feedback is generated separately in the store
   }
 }

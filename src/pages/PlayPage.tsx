@@ -45,6 +45,7 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import { useGameStore } from "@/store/game-store";
+import { FIXED_COSTS_PER_LEVEL } from "@/lib/simulation";
 import {
   formatBudget,
   getBudgetColorClass,
@@ -68,9 +69,6 @@ const QUALITY_COSTS: Record<number, string> = {
   4: "$0.20",
   5: "$0.28",
 };
-
-/** Fixed costs deducted per level, mirroring the store constant. */
-const FIXED_COSTS_PER_LEVEL = 20;
 
 export default function PlayPage() {
   const navigate = useNavigate();
@@ -127,8 +125,14 @@ export default function PlayPage() {
   const canAffordToPlay = budget >= FIXED_COSTS_PER_LEVEL;
 
   // Loan state checks
+  const loanDeclined =
+    scenario != null &&
+    currentPlayer != null &&
+    (currentPlayer.declinedLoanLevels ?? []).includes(scenario.level);
   const loanAvailable =
-    scenario?.loanOffer != null && currentPlayer?.activeLoan == null;
+    scenario?.loanOffer != null &&
+    currentPlayer?.activeLoan == null &&
+    !loanDeclined;
   const loanAlreadyAccepted =
     currentPlayer?.activeLoan != null &&
     currentPlayer.activeLoan.acceptedAtLevel === currentPlayer.currentLevel;
@@ -380,7 +384,7 @@ export default function PlayPage() {
               Level {currentPlayer.currentLevel} - Locked
             </CardTitle>
             <CardDescription className="text-gray-600">
-              This level unlocks on Camp Day {levelDay} at 7:00 AM.
+              This level unlocks on Camp Day {levelDay} at 8:30 AM.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-center">
@@ -427,9 +431,10 @@ export default function PlayPage() {
   // Simulation Results Inline Preview
   // =========================================================================
   if (lastSimulationResult) {
-    const { cupsSold, revenue, costs, profit, feedback } =
+    const { cupsSold, revenue, costs, profit, actualMarketing, feedback } =
       lastSimulationResult;
     const isProfitable = profit >= 0;
+    const marketingWasCapped = actualMarketing < currentDecision.marketing;
 
     // The player's level was advanced after simulation, so the result
     // pertains to (currentLevel - 1).
@@ -502,6 +507,18 @@ export default function PlayPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Marketing affordability cap notice */}
+        {marketingWasCapped && (
+          <Alert className="border-amber-200 bg-amber-50">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800">
+              You chose ${currentDecision.marketing} of marketing, but your
+              budget only covered ${actualMarketing} after fixed costs — the
+              simulation used ${actualMarketing}.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Brief feedback preview */}
         {feedback.length > 0 && (
