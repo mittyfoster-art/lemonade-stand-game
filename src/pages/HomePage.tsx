@@ -16,6 +16,7 @@
 import { Link } from "react-router-dom";
 import { useGameStore } from "@/store/game-store";
 import { GameRoomManager } from "@/components/GameRoomManager";
+import { EntryScene } from "@/components/EntryScene";
 import { formatBudget, getBudgetColorClass } from "@/components/layout/DesktopSidebar";
 import BudgetWarningBanner from "@/components/BudgetWarningBanner";
 import { CampCountdown } from "@/components/CampCountdown";
@@ -55,39 +56,41 @@ function HomePage() {
   // --------------------------------------------------------------------------
   if (!currentPlayer) {
     return (
-      <div className="space-y-8">
-        {/* Welcome header */}
-        <div className="text-center space-y-3">
-          <div className="flex items-center justify-center gap-3">
-            <span className="text-5xl" role="img" aria-label="Lemon">
-              🍋
-            </span>
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-foreground">
-              Lemonade Stand Business
-            </h1>
+      <EntryScene>
+        <div className="space-y-8">
+          {/* Welcome header */}
+          <div className="text-center space-y-3">
+            <div className="flex items-center justify-center gap-3">
+              <span className="text-5xl" role="img" aria-label="Lemon">
+                🍋
+              </span>
+              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-amber-950 dark:text-amber-100">
+                Lemonade Stand Business
+              </h1>
+            </div>
+            <p className="max-w-xl mx-auto leading-relaxed text-amber-900/80 dark:text-amber-100/80">
+              Run your own lemonade stand! Set prices, choose quality, plan
+              your marketing, and navigate 50 unique market scenarios. Compete
+              with other players to build the most profitable business.
+            </p>
           </div>
-          <p className="text-muted-foreground max-w-xl mx-auto leading-relaxed">
-            Run your own lemonade stand! Set prices, choose quality, plan your
-            marketing, and navigate 50 unique market scenarios. Compete with
-            other players to build the most profitable business.
-          </p>
-        </div>
 
-        {/* Room join / create flow */}
-        <GameRoomManager />
+          {/* Room join / create flow */}
+          <GameRoomManager />
 
-        {/* How to Play link */}
-        <div className="text-center">
-          <Link
-            to="/how-to-play"
-            className="inline-flex items-center gap-2 text-sm font-medium text-amber-700 hover:text-amber-900 transition-colors"
-          >
-            <HelpCircle className="h-4 w-4" />
-            Learn how to play
-            <ChevronRight className="h-4 w-4" />
-          </Link>
+          {/* How to Play link */}
+          <div className="text-center">
+            <Link
+              to="/how-to-play"
+              className="inline-flex items-center gap-2 text-sm font-medium text-amber-800 hover:text-amber-950 dark:text-amber-200 dark:hover:text-amber-50 transition-colors"
+            >
+              <HelpCircle className="h-4 w-4" />
+              Learn how to play
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
-      </div>
+      </EntryScene>
     );
   }
 
