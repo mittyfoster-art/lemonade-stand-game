@@ -1,0 +1,11 @@
+# Never upload local env files to Vercel builds — the production build
+# must use Vercel's own environment variables (real OTP auth, no mock).
+.env
+.env.*
+!.env.example
+
+# Dev/build artifacts not needed for the remote build
+dist
+dev-dist
+e2e/screenshots
+autonomous-coder

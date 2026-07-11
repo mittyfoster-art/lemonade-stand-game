@@ -42,10 +42,25 @@ const CAMP_TIMEZONE = 'America/Cayman'
 // Helpers
 // ============================================================================
 
-/** Safely parse a JSON string of players, returning an empty array on failure. */
+/**
+ * Safely parse a JSON string of players, returning an empty array on failure.
+ * Legacy rooms stored the array double-encoded (a JSON string containing
+ * JSON), which JSON.parse "successfully" returns as a string — treating that
+ * as Player[] crashed addPlayer for anyone joining such a room. Unwrap
+ * nested string encodings and only ever return a real array.
+ */
 function safeParsePlayersJson(raw: string | null | undefined, context: string): Player[] {
   try {
-    return JSON.parse(raw || '[]') as Player[]
+    let parsed: unknown = raw || '[]'
+    let guard = 0
+    while (typeof parsed === 'string' && guard++ < 3) {
+      parsed = JSON.parse(parsed)
+    }
+    if (!Array.isArray(parsed)) {
+      console.error(`[Lemonade] Players JSON is not an array (${context})`)
+      return []
+    }
+    return parsed as Player[]
   } catch (error) {
     console.error(`[Lemonade] Failed to parse players JSON (${context}):`, error)
     return []
