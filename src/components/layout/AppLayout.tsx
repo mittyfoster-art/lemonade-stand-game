@@ -14,10 +14,14 @@ import { Outlet } from "react-router-dom";
 import DesktopSidebar from "@/components/layout/DesktopSidebar";
 import MobileHeader from "@/components/layout/MobileHeader";
 import BottomNav from "@/components/layout/BottomNav";
+import { AmbientBackdrop } from "@/components/AmbientBackdrop";
 
 export default function AppLayout() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
+      {/* Summer Pop liquid-citrus environment behind all pages */}
+      <AmbientBackdrop />
+
       {/* Skip-to-content link for keyboard / screen-reader users */}
       <a
         href="#main-content"

@@ -55,8 +55,9 @@ export default function BottomNav() {
                 <div
                   className={cn(
                     "flex items-center justify-center w-10 h-7 rounded-full transition-all duration-200",
+                    // Summer Pop: active tab is a solid zest pill with a physical edge
                     isActive
-                      ? "bg-primary/20 scale-110"
+                      ? "bg-primary scale-110 shadow-[0_2px_0_#544600]"
                       : "bg-transparent"
                   )}
                 >

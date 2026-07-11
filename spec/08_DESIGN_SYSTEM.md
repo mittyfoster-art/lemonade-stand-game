@@ -202,10 +202,28 @@ than rigid full-screen blocks.
 | Lime-on-charcoal progress | `src/components/ui/progress.tsx` |
 | Entry parallax scene | `src/components/EntryScene.tsx` (sky now uses the pale-sun → warm-sand ramp) |
 
-Deliberate deviations, for legibility (WCAG contrast beats spec where they
-conflict):
+## Atmosphere layer (extended brief, applied 2026-07-10)
+
+The kit's second wave extends the system platform-wide:
+
+| Brief element | Implementation |
+|---|---|
+| "Liquid citrus" background reacting to mouse | `src/components/AmbientBackdrop.tsx` — three blurred zest/sea/lime blobs drifting on slow keyframes + pointer-parallax lean, mounted once in `AppLayout` behind every page |
+| Parallax feel | Shared hook `src/hooks/use-pointer-parallax.ts` (lerped rAF → `--par-x/--par-y` CSS vars), used by both `AmbientBackdrop` and `EntryScene` |
+| Side nav physical active states | `DesktopSidebar` / `MobileHeader` drawer: active item = solid zest, `rounded-xl`, heavy `0 3px 0 #544600` edge; `BottomNav` active pill matches |
+| Gamified stickers | `src/components/ui/sticker.tsx` — rotated die-cut badge (3px white border, sharp offset shadow, display face); applied to the Results page outcome (PROFIT! / LOSS) |
+| Custom sliders in secondary tones | `src/components/ui/slider.tsx` — charcoal track, cyan→lime gradient range, chunky white thumb with thick sea border |
+| Charts in theme tones | `--chart-*` variables (yellow / teal / lime) consumed by recharts |
+
+Deliberate deviations, for legibility and camp-day reliability (WCAG
+contrast and phone battery beat spec where they conflict):
 
 - Secondary "ghost" buttons use deep-teal text on light backgrounds instead
   of white text (white-on-ghost fails contrast outdoors on light surfaces).
 - Dark mode is a pragmatic charcoal-sea adaptation of the palette — the spec
   defines light mode only.
+- **No WebGL shaders / Three.js 3D pitcher.** The same reactive liquid-citrus
+  atmosphere is delivered with blurred CSS gradients + pointer parallax at
+  ~zero bundle/GPU cost. Rationale: 25-30 mixed-quality phones running WebGL
+  all day on camp Wi-Fi is a battery and compatibility risk during the live
+  event (July 13-17). Revisit the 3D pitcher as a post-camp enhancement.

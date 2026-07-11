@@ -124,11 +124,12 @@ export default function MobileHeader() {
                   onClick={handleNavClick}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                      "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
                       "hover:bg-primary/10 hover:text-foreground",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      // Summer Pop: active item reads as a pressed physical button
                       isActive
-                        ? "bg-primary/15 text-foreground shadow-sm"
+                        ? "bg-primary font-bold text-primary-foreground shadow-[0_3px_0_#544600]"
                         : "text-muted-foreground"
                     )
                   }

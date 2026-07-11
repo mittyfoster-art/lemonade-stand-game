@@ -39,6 +39,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Sticker } from "@/components/ui/sticker";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { useGameStore } from "@/store/game-store";
@@ -180,13 +181,13 @@ export default function ResultsPage() {
             Day {scenarioData.day}
           </Badge>
           {isProfitable ? (
-            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
-              Profitable
-            </Badge>
+            <Sticker color="lime" rotate={-5} className="ml-1">
+              Profit!
+            </Sticker>
           ) : (
-            <Badge className="bg-red-100 text-red-800 border-red-200">
+            <Sticker color="red" rotate={5} className="ml-1">
               Loss
-            </Badge>
+            </Sticker>
           )}
         </div>
         <h1 className="text-2xl font-bold text-foreground">{scenarioTitle}</h1>

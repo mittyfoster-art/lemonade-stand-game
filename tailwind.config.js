@@ -131,6 +131,17 @@ export default {
 						transform: 'translateY(0)'
 					}
 				},
+				'blob-drift': {
+					'0%': {
+						transform: 'translate(0, 0) scale(1)'
+					},
+					'50%': {
+						transform: 'translate(4rem, -2rem) scale(1.15)'
+					},
+					'100%': {
+						transform: 'translate(-2rem, 3rem) scale(0.95)'
+					}
+				},
 				'sun-rise': {
 					from: {
 						opacity: '0',
@@ -146,6 +157,7 @@ export default {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
 				'lemon-float': 'lemon-float 6s ease-in-out infinite alternate',
+				'blob-drift': 'blob-drift 30s ease-in-out infinite alternate',
 				'cloud-drift': 'cloud-drift 24s ease-in-out infinite alternate',
 				'scene-rise': 'scene-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both',
 				'sun-rise': 'sun-rise 1.2s cubic-bezier(0.22, 1, 0.36, 1) both'
