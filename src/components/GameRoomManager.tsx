@@ -367,8 +367,8 @@ export const GameRoomManager: React.FC = () => {
                 </div>
                 <div className="space-y-2">
                   {availableGameRooms
-                    .slice(-5)
-                    .reverse()
+                    // Rooms arrive sorted most-recently-updated first; show the top 5
+                    .slice(0, 5)
                     .map((room) => (
                       <div
                         key={room.id}
