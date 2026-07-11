@@ -9,7 +9,8 @@ const Card = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      "rounded-xl border bg-card text-card-foreground shadow",
+      // Summer Pop frosted glass: translucent surface + backdrop blur
+      "rounded-xl border border-white/60 bg-card/75 text-card-foreground shadow-[0_10px_20px_rgba(0,0,0,0.08)] backdrop-blur-xl dark:border-white/10",
       className
     )}
     {...props}

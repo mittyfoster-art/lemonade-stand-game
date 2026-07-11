@@ -45,34 +45,44 @@
  * ====================================
  */
 
+/* Summer Pop typefaces (self-hosted for offline PWA use) */
+@import '@fontsource-variable/bricolage-grotesque';
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '@fontsource-variable/space-grotesk';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * SUMMER POP palette (see spec/08_DESIGN_SYSTEM.md)
+ * Citrus & Sea: Zesty Yellow primary, Cool Cyan secondary,
+ * Neon Lime tertiary, Deep Charcoal text.
+ */
 @layer base {
   :root {
-    --background: 50 100% 97%;
-    --foreground: 240 10% 15%;
+    --background: 200 69% 97%;     /* surface #f4fafd */
+    --foreground: 193 17% 10%;     /* on-surface #161d1f */
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 15%;
+    --card-foreground: 193 17% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 15%;
-    --primary: 45 100% 50%;
-    --primary-foreground: 240 10% 15%;
-    --secondary: 120 60% 50%;
+    --popover-foreground: 193 17% 10%;
+    --primary: 51 100% 50%;        /* zesty yellow #ffd700 */
+    --primary-foreground: 48 100% 7%;  /* #221b00 */
+    --secondary: 187 100% 23%;     /* cool cyan #006875 */
     --secondary-foreground: 0 0% 100%;
-    --muted: 45 100% 95%;
-    --muted-foreground: 240 5% 45%;
-    --accent: 15 90% 60%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
+    --muted: 193 24% 93%;          /* surface-container #e8eff1 */
+    --muted-foreground: 47 21% 25%;    /* on-surface-variant #4d4732 */
+    --accent: 186 100% 50%;        /* cyan container #00e3fd */
+    --accent-foreground: 188 100% 7%;  /* #001f24 */
+    --destructive: 0 75% 42%;      /* error #ba1a1a */
     --destructive-foreground: 0 0% 98%;
-    --border: 45 50% 85%;
+    --border: 44 28% 74%;          /* outline-variant #d0c6ab */
     --input: 0 0% 100%;
-    --ring: 45 100% 50%;
-    --chart-1: 45 100% 50%;
-    --chart-2: 120 60% 50%;
-    --chart-3: 15 90% 60%;
+    --ring: 186 100% 48%;          /* cyan glow #00daf3 */
+    --chart-1: 51 100% 50%;
+    --chart-2: 187 100% 23%;
+    --chart-3: 92 100% 48%;        /* neon lime #72f700 */
     --chart-4: 142 71% 45%;
     --chart-5: 280 100% 70%;
     --radius: 1rem
@@ -86,28 +96,28 @@
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%}
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 193 20% 8%;
+    --foreground: 200 30% 93%;
+    --card: 193 18% 11%;
+    --card-foreground: 200 30% 93%;
+    --popover: 193 18% 11%;
+    --popover-foreground: 200 30% 93%;
+    --primary: 50 100% 46%;       /* dimmed zesty yellow #e9c400 */
+    --primary-foreground: 48 100% 7%;
+    --secondary: 187 100% 30%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 193 15% 16%;
+    --muted-foreground: 47 15% 65%;
+    --accent: 187 100% 18%;
+    --accent-foreground: 186 100% 85%;
+    --destructive: 0 62.8% 40%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
+    --border: 193 12% 22%;
+    --input: 193 15% 16%;
+    --ring: 186 100% 48%;
+    --chart-1: 51 100% 50%;
+    --chart-2: 187 90% 40%;
+    --chart-3: 92 100% 45%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%
   ;
@@ -125,7 +135,30 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background font-sans text-foreground;
+    /* Level 0 "Environment": pale sun into warm sand */
+    background-image: radial-gradient(
+      circle at 50% -10%,
+      #fff9c4 0%,
+      #ffecb3 45%,
+      hsl(var(--background)) 100%
+    );
+    background-attachment: fixed;
+  }
+  .dark body {
+    background-image: radial-gradient(
+      circle at 50% -10%,
+      hsl(193 25% 12%) 0%,
+      hsl(var(--background)) 70%
+    );
+  }
+  /* Summer Pop typography: loud display face for headings,
+     friendly grotesque for everything else. */
+  h1, h2, h3 {
+    @apply font-display;
+  }
+  h1 {
+    letter-spacing: -0.02em;
   }
 }
 

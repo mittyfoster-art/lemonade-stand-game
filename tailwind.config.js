@@ -14,12 +14,29 @@ export default {
 			}
 		},
 		extend: {
+			fontFamily: {
+				// Summer Pop type system (spec/08_DESIGN_SYSTEM.md)
+				display: ['"Bricolage Grotesque Variable"', 'system-ui', 'sans-serif'],
+				sans: ['"Plus Jakarta Sans Variable"', 'system-ui', 'sans-serif'],
+				label: ['"Space Grotesk Variable"', 'system-ui', 'sans-serif']
+			},
 			borderRadius: {
 				lg: 'var(--radius)',
 				md: 'calc(var(--radius) - 2px)',
 				sm: 'calc(var(--radius) - 4px)'
 			},
 			colors: {
+				// Summer Pop raw accents (Citrus & Sea)
+				pop: {
+					zest: '#ffd700',
+					'zest-deep': '#b89b00',
+					sea: '#006875',
+					'sea-bright': '#00e3fd',
+					'sea-mist': '#9cf0ff',
+					lime: '#67e100',
+					'lime-bright': '#72f700',
+					charcoal: '#161d1f'
+				},
 				background: 'hsl(var(--background))',
 				foreground: 'hsl(var(--foreground))',
 				card: {

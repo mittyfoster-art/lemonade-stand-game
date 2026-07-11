@@ -216,7 +216,7 @@ export function EntryScene({ children }: EntrySceneProps) {
       {/* Sky */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 -z-30 bg-gradient-to-b from-[#FFF8DC] via-[#FFE59A] to-[#FFB35C] dark:from-[#241B3A] dark:via-[#4A2E55] dark:to-[#B65A38]"
+        className="absolute inset-0 -z-30 bg-gradient-to-b from-[#FFF9C4] via-[#FFECB3] to-[#FFB35C] dark:from-[#241B3A] dark:via-[#4A2E55] dark:to-[#B65A38]"
       />
 
       {/* Sun — deepest layer, barely moves */}
