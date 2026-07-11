@@ -512,6 +512,53 @@ describe('level unlock logic', () => {
     expect(isLevelUnlocked(-1)).toBe(false)
   })
 
+  describe('camp week boundaries (regression: UTC date-parse off-by-one, 2026-07-11)', () => {
+    // new Date("2026-07-13") parses as UTC midnight = Sunday 7 PM in
+    // Cayman (UTC-5); the old code therefore unlocked day 1 a full day
+    // early. These tests pin the exact Sunday/Monday boundary in Cayman
+    // time regardless of the machine's timezone.
+    const CAMP_START = '2026-07-13' // Monday
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('keeps day 1 locked all of Sunday July 12 (Cayman)', () => {
+      // Sunday 3:00 PM Cayman = 20:00 UTC
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-07-12T20:00:00Z'))
+      const { isLevelUnlocked } = useGameStore.getState()
+      expect(isLevelUnlocked(1, CAMP_START)).toBe(false)
+    })
+
+    it('keeps day 1 locked Monday 8:29 AM Cayman', () => {
+      // 8:29 AM Cayman = 13:29 UTC (no DST in Cayman)
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-07-13T13:29:00Z'))
+      const { isLevelUnlocked } = useGameStore.getState()
+      expect(isLevelUnlocked(1, CAMP_START)).toBe(false)
+    })
+
+    it('unlocks day 1 (and only day 1) Monday 8:30 AM Cayman', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-07-13T13:30:00Z'))
+      const { isLevelUnlocked } = useGameStore.getState()
+      expect(isLevelUnlocked(1, CAMP_START)).toBe(true)
+      expect(isLevelUnlocked(10, CAMP_START)).toBe(true)
+      expect(isLevelUnlocked(11, CAMP_START)).toBe(false)
+    })
+
+    it('unlocks day 5 levels Friday 8:30 AM, keeping catch-up open', () => {
+      // Friday July 17, 8:30 AM Cayman = 13:30 UTC
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-07-17T13:30:00Z'))
+      const { isLevelUnlocked } = useGameStore.getState()
+      expect(isLevelUnlocked(41, CAMP_START)).toBe(true)
+      expect(isLevelUnlocked(50, CAMP_START)).toBe(true)
+      expect(isLevelUnlocked(1, CAMP_START)).toBe(true) // catch-up allowed
+    })
+  })
+
   it('locks all levels when camp is in the future', () => {
     const { isLevelUnlocked } = useGameStore.getState()
     // Camp starts far in the future → campDay = 0 → all levels locked

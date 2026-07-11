@@ -561,14 +561,18 @@ const getCaymanTime = (): { year: number; month: number; day: number; hour: numb
  * Returns 1 as a safe fallback for invalid date strings instead of NaN.
  */
 const getCampDay = (campStartDate: string): number => {
-  const start = new Date(campStartDate)
+  // Parse the plain calendar date directly. `new Date("2026-07-13")` parses
+  // as UTC midnight, which getFullYear/getDate then re-read in the DEVICE
+  // timezone — in Cayman (UTC-5) that shifted the start date to July 12 and
+  // unlocked day 1 a whole day early (caught 2026-07-11).
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(campStartDate ?? '')
 
   // Graceful fallback for invalid/missing date strings
-  if (isNaN(start.getTime())) return 1
+  if (!match) return 1
 
   const cayman = getCaymanTime()
   const nowMidnight = Date.UTC(cayman.year, cayman.month, cayman.day)
-  const startMidnight = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+  const startMidnight = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
 
   const diffMs = nowMidnight - startMidnight
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))

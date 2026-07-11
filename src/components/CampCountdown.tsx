@@ -39,12 +39,24 @@ const UNLOCK_MINUTE = 30;
 // ---------------------------------------------------------------------------
 
 /**
+ * Parse a "YYYY-MM-DD" camp start date as a LOCAL calendar date.
+ * `new Date("2026-07-13")` parses as UTC midnight, which shifts to the
+ * previous day in timezones west of UTC (Cayman is UTC-5) — that bug
+ * showed camp starting "Sunday, July 12" instead of Monday, July 13.
+ */
+function parseLocalDate(dateString: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateString ?? "");
+  if (!m) return new Date(NaN);
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/**
  * Calculate the camp day number (1-5) from the current date and start date.
  * Returns 0 if camp has not started, or 6+ if camp is over.
  */
 function getCampDay(campStartDate: string): number {
   const now = new Date();
-  const start = new Date(campStartDate);
+  const start = parseLocalDate(campStartDate);
 
   const nowMidnight = Date.UTC(
     now.getFullYear(),
@@ -90,7 +102,7 @@ function getTimeUntilNextUnlock(
 ): number {
   if (campDay <= 0 || campDay > 5) return 0;
 
-  const start = new Date(campStartDate);
+  const start = parseLocalDate(campStartDate);
   const now = new Date();
 
   // The next batch unlocks at the start of the *next* camp day at 8:30 AM.
@@ -145,7 +157,7 @@ export function CampCountdown({ variant = 'sidebar' }: CampCountdownProps) {
 
   // Camp hasn't started yet
   if (campDay <= 0) {
-    const start = new Date(campStartDate);
+    const start = parseLocalDate(campStartDate);
     const now = new Date();
     const daysUntil = Math.ceil(
       (start.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
