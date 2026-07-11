@@ -29,6 +29,7 @@ import {
   History,
   AlertTriangle,
   LineChart as LineChartIcon,
+  LogOut,
 } from "lucide-react";
 import {
   LineChart,
@@ -53,6 +54,17 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -109,6 +121,16 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const currentPlayer = useGameStore((s) => s.currentPlayer);
   const currentGameRoom = useGameStore((s) => s.currentGameRoom);
+  const leaveGameRoom = useGameStore((s) => s.leaveGameRoom);
+
+  /**
+   * Leave the room locally. Progress is preserved on the server —
+   * rejoining with the same name reconnects to the existing session.
+   */
+  const handleLeaveRoom = () => {
+    leaveGameRoom();
+    navigate("/", { replace: true });
+  };
 
   // Redirect if no player is selected
   useEffect(() => {
@@ -257,6 +279,34 @@ export default function ProfilePage() {
               Leaderboard
             </Link>
           </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+              >
+                <LogOut className="h-4 w-4 mr-1" />
+                Leave Room
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Leave this room?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Your progress is saved. To pick up where you left off, join
+                  the room again with the same name:{" "}
+                  <strong>{name}</strong>.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Stay</AlertDialogCancel>
+                <AlertDialogAction onClick={handleLeaveRoom}>
+                  Leave Room
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 

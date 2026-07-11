@@ -1457,6 +1457,14 @@ export const useGameStore = create<GameState>()(
         if (syncTimeout) { clearTimeout(syncTimeout); syncTimeout = null }
         if (retryTimeout) { clearTimeout(retryTimeout); retryTimeout = null }
 
+        // Clear the stored player ID so the device can be handed to another
+        // player. Progress stays on the server — rejoining with the same
+        // name reconnects to the existing session.
+        const room = get().currentGameRoom
+        if (room) {
+          localStorage.removeItem(`lemon-player-${room.id}`)
+        }
+
         set({
           currentGameRoom: null,
           players: [],
